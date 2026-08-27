@@ -127,7 +127,53 @@ const loginUser = async (req, res) => {
   }
 };
 
+// Reset User Password - Development Only
+const resetPassword = async (req, res) => {
+  try {
+    const { email, newPassword } = req.body;
+
+    // Check required fields
+    if (!email || !newPassword) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide email and new password'
+      });
+    }
+
+    // Find user
+    const user = await User.findOne({ email });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    // Hash new password
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+    // Update password
+    user.password = hashedPassword;
+    await user.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'Password reset successfully'
+    });
+
+  } catch (error) {
+    console.error(error);
+
+    res.status(500).json({
+      success: false,
+      message: 'Server error'
+    });
+  }
+};
+
 module.exports = {
   registerUser,
-  loginUser
+  loginUser,
+  resetPassword
 };
