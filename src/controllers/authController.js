@@ -1,6 +1,7 @@
 const User = require('../models/User');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const Account = require('../models/Account');
 
 // Register User
 const registerUser = async (req, res) => {
@@ -28,13 +29,21 @@ const registerUser = async (req, res) => {
     // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Create user
-    const user = await User.create({
-      name,
-      email,
-      password: hashedPassword
-    });
+   // Create user
+const user = await User.create({
+  name,
+  email,
+  password: hashedPassword
+});
 
+// Create trading account
+await Account.create({
+  user: user._id,
+  availableCash: 1000000,
+  investedAmount: 0,
+  totalPortfolioValue: 0,
+  accountMode: 'SIMULATION'
+});
     res.status(201).json({
       success: true,
       message: 'User registered successfully',
