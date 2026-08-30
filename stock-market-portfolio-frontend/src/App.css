@@ -734,6 +734,50 @@
   margin-top: 12px;
 }
 
+/* ==========================================
+   Watchlist
+========================================== */
+
+.watchlist-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.watchlist-add-button {
+  width: auto;
+  margin-top: 0;
+  min-width: 140px;
+}
+
+.watchlist-table .watchlist-symbol {
+  font-weight: 800;
+  color: #172033;
+}
+
+.watchlist-success {
+  margin-bottom: 18px;
+}
+
+.watchlist-inline-message {
+  margin-top: 16px;
+}
+
+.quote-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.quote-action-button {
+  width: auto;
+  margin-top: 0;
+  flex: 1 1 auto;
+}
+
 @media (max-width: 980px) {
   .stats-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));

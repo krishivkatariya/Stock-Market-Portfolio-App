@@ -3,6 +3,8 @@ import { NavLink, useNavigate } from 'react-router-dom';
 
 import api from '../api/api';
 import { useAuth } from '../context/useAuth';
+import TradeModal from '../components/TradeModal';
+import { addToWatchlist } from '../services/watchlistService';
 
 const currencyFormatter = new Intl.NumberFormat('en-IN', {
   style: 'currency',
@@ -59,7 +61,7 @@ const Navbar = ({ user, onLogout }) => {
   const navItems = [
     { label: 'Dashboard', to: '/dashboard' },
     { label: 'Portfolio', to: '/portfolio' },
-    { label: 'Watchlist', to: '/dashboard' },
+    { label: 'Watchlist', to: '/watchlist' },
     { label: 'Transactions', to: '/dashboard' },
     { label: 'Account', to: '/dashboard' }
   ];
@@ -115,6 +117,10 @@ const Dashboard = () => {
   const [quoteLoading, setQuoteLoading] = useState(false);
   const [tradeModalStock, setTradeModalStock] = useState(null);
 
+  const [watchlistActionLoading, setWatchlistActionLoading] = useState(false);
+  const [addedToWatchlist, setAddedToWatchlist] = useState(false);
+  const [watchlistMessage, setWatchlistMessage] = useState('');
+
   const fetchDashboardData = async () => {
     try {
       setPortfolioLoading(true);
@@ -141,7 +147,21 @@ const Dashboard = () => {
     };
 
   useEffect(() => {
-    fetchDashboardData();
+    let active = true;
+
+    const load = async () => {
+      if (!active) {
+        return;
+      }
+
+      await fetchDashboardData();
+    };
+
+    load();
+
+    return () => {
+      active = false;
+    };
   }, []);
 
   const summaryCards = useMemo(() => {
@@ -224,12 +244,43 @@ const Dashboard = () => {
     try {
       const response = await api.get(`/stocks/${encodeURIComponent(symbol)}`);
       setSelectedStock(response.data.stock || null);
+      setAddedToWatchlist(false);
+      setWatchlistMessage('');
     } catch (error) {
       const message = error.response?.data?.message || 'Unable to load stock details.';
       setSearchError(message);
       setSelectedStock(null);
     } finally {
       setQuoteLoading(false);
+    }
+  };
+
+  const handleAddToWatchlist = async () => {
+    if (!selectedStock || watchlistActionLoading) {
+      return;
+    }
+
+    setWatchlistActionLoading(true);
+    setWatchlistMessage('');
+
+    try {
+      await addToWatchlist(selectedStock.symbol);
+      setAddedToWatchlist(true);
+      setWatchlistMessage(
+        `${selectedStock.symbol} added to your watchlist.`
+      );
+    } catch (addError) {
+      if (addError.response?.status === 401) {
+        setWatchlistMessage('Session expired. Please log in again.');
+        return;
+      }
+
+      setWatchlistMessage(
+        addError.response?.data?.message ||
+          'Unable to add this stock to your watchlist. Please try again.'
+      );
+    } finally {
+      setWatchlistActionLoading(false);
     }
   };
 
@@ -345,7 +396,25 @@ const Dashboard = () => {
                 <button type="button" className="primary-button quote-action-button" onClick={() => handleOpenTradeModal(selectedStock)}>
                   Buy {selectedStock.symbol}
                 </button>
+                <button
+                  type="button"
+                  className="secondary-button quote-action-button"
+                  onClick={handleAddToWatchlist}
+                  disabled={watchlistActionLoading || addedToWatchlist}
+                >
+                  {addedToWatchlist
+                    ? 'Added to Watchlist ✓'
+                    : watchlistActionLoading
+                      ? 'Adding...'
+                      : 'Add to Watchlist'}
+                </button>
               </div>
+
+              {watchlistMessage ? (
+                <div className={addedToWatchlist ? 'success-message watchlist-inline-message' : 'inline-error watchlist-inline-message'}>
+                  {watchlistMessage}
+                </div>
+              ) : null}
 
               <div className="quote-grid">
                 <div className="metric-box">

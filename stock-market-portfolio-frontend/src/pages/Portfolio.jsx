@@ -184,6 +184,9 @@ const PortfolioPage = () => {
           <button type="button" className="nav-link-button active" onClick={() => navigate('/portfolio')}>
             Portfolio
           </button>
+          <button type="button" className="nav-link-button" onClick={() => navigate('/watchlist')}>
+            Watchlist
+          </button>
         </div>
 
         <div className="topbar-user">

@@ -8,6 +8,7 @@ import Login from './pages/Login';
 import Register from './pages/Register';
 import Dashboard from './pages/Dashboard';
 import Portfolio from './pages/Portfolio';
+import Watchlist from './pages/Watchlist';
 import ProtectedRoute from './components/ProtectedRoute';
 
 import './App.css';
@@ -46,6 +47,11 @@ function App() {
         <Route
           path="/portfolio"
           element={<Portfolio />}
+        />
+
+        <Route
+          path="/watchlist"
+          element={<Watchlist />}
         />
 
       </Route>
