@@ -10,6 +10,14 @@ const userRoutes = require('./routes/userRoutes');
 const stockRoutes = require('./routes/stockRoutes');
 const portfolioRoutes = require('./routes/portfolioRoutes');
 const accountRoutes = require('./routes/accountRoutes');
+const walletRoutes = require('./routes/walletRoutes');
+const transactionRoutes =
+  require('./routes/transactionRoutes');
+const watchlistRoutes =
+  require('./routes/watchlistRoutes');
+const orderRoutes = require('./routes/orderRoutes');
+const dashboardRoutes = require('./routes/dashboardRoutes');
+const notificationRoutes = require('./routes/notificationRoutes');
 
 const app = express();
 
@@ -24,11 +32,35 @@ app.use(express.json());
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/stocks', stockRoutes);
+
 app.use(
   '/api/portfolio',
   portfolioRoutes
 );
+
 app.use('/api/account', accountRoutes);
+
+app.use('/api/wallet', walletRoutes);
+app.use(
+  '/api/transactions',
+  transactionRoutes
+);
+app.use(
+  '/api/watchlist',
+  watchlistRoutes
+);
+app.use(
+  '/api/orders',
+  orderRoutes
+);
+app.use(
+  '/api/dashboard',
+  dashboardRoutes
+);
+app.use(
+  '/api/notifications',
+  notificationRoutes
+);
 
 // Test route
 app.get('/', (req, res) => {

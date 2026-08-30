@@ -1,5 +1,9 @@
 const Portfolio = require('../models/Portfolio');
 const Transaction = require('../models/Transaction');
+const Account = require('../models/Account');
+const WalletTransaction = require('../models/WalletTransaction');
+const Order = require('../models/Order');
+
 const {
   getStockQuote
 } = require('../services/stockService');
@@ -30,7 +34,8 @@ const getPortfolio = async (req, res) => {
 
       try {
 
-        const quote = await getStockQuote(stock.symbol);
+        const quote =
+          await getStockQuote(stock.symbol);
 
         const currentPrice =
           quote.regularMarketPrice || 0;
@@ -51,7 +56,8 @@ const getPortfolio = async (req, res) => {
           symbol: stock.symbol,
           companyName: stock.companyName,
           quantity: stock.quantity,
-          averageBuyPrice: stock.averageBuyPrice,
+          averageBuyPrice:
+            stock.averageBuyPrice,
           currentPrice,
           investment,
           currentValue,
@@ -64,15 +70,18 @@ const getPortfolio = async (req, res) => {
           symbol: stock.symbol,
           companyName: stock.companyName,
           quantity: stock.quantity,
-          averageBuyPrice: stock.averageBuyPrice,
+          averageBuyPrice:
+            stock.averageBuyPrice,
+
           currentPrice: null,
+
           investment:
             stock.quantity *
             stock.averageBuyPrice,
+
           currentValue: null,
           profitLoss: null
         });
-
       }
     }
 
@@ -99,11 +108,33 @@ const getPortfolio = async (req, res) => {
       totalInvestment;
 
 
+    // Update account portfolio values
+
+    const account =
+      await Account.findOne({
+        user: req.user.id
+      });
+
+    if (account) {
+
+      account.investedAmount =
+        totalInvestment;
+
+      account.totalPortfolioValue =
+        totalPortfolioValue;
+
+      await account.save();
+    }
+
+
     res.status(200).json({
+
       success: true,
 
       portfolio: {
-        stocks: stocksWithPrices,
+
+        stocks:
+          stocksWithPrices,
 
         totalInvestment,
 
@@ -122,167 +153,989 @@ const getPortfolio = async (req, res) => {
 
     res.status(500).json({
       success: false,
-      message: 'Unable to get portfolio'
+      message:
+        'Unable to get portfolio'
     });
   }
 };
+
 
 // ==========================================
 // Buy Stock
 // ==========================================
 
 const buyStock = async (req, res) => {
+
   try {
 
-    const { symbol, quantity } = req.body;
+    const {
+      symbol,
+      quantity
+    } = req.body;
 
-    // Check required fields
-    if (!symbol || !quantity) {
-      return res.status(400).json({
-        success: false,
-        message: 'Please provide stock symbol and quantity'
-      });
-    }
 
-    // Validate quantity
+    // ==========================================
+    // 1. Validate input
+    // ==========================================
+
     if (
-      !Number.isInteger(quantity) ||
-      quantity <= 0
+      !symbol ||
+      quantity === undefined
     ) {
+
       return res.status(400).json({
         success: false,
-        message: 'Quantity must be a positive integer'
+        message:
+          'Please provide stock symbol and quantity'
       });
     }
 
-    // Get current stock information
-    const quote = await getStockQuote(symbol);
+
+    const buyQuantity =
+      Number(quantity);
+
+
+    if (
+      !Number.isInteger(buyQuantity) ||
+      buyQuantity <= 0
+    ) {
+
+      return res.status(400).json({
+        success: false,
+        message:
+          'Quantity must be a positive integer'
+      });
+    }
+
+
+    // ==========================================
+    // 2. Get current stock information
+    // ==========================================
+
+    const quote =
+      await getStockQuote(symbol);
+
 
     const currentPrice =
       quote.regularMarketPrice;
 
+
+    if (
+      !currentPrice ||
+      !Number.isFinite(currentPrice) ||
+      currentPrice <= 0
+    ) {
+
+      return res.status(400).json({
+        success: false,
+        message:
+          'Unable to get current stock price'
+      });
+    }
+
+
+    const stockSymbol =
+      quote.symbol ||
+      symbol.toUpperCase();
+
+
     const companyName =
       quote.shortName ||
       quote.longName ||
-      symbol.toUpperCase();
+      stockSymbol;
 
-    if (!currentPrice) {
-      return res.status(400).json({
+
+    // ==========================================
+    // 3. Calculate total purchase amount
+    // ==========================================
+
+    const totalAmount =
+      buyQuantity *
+      currentPrice;
+
+
+    // ==========================================
+    // 4. Find trading account
+    // ==========================================
+
+    const account =
+      await Account.findOne({
+        user: req.user.id
+      });
+
+
+    if (!account) {
+
+      return res.status(404).json({
         success: false,
-        message: 'Unable to get current stock price'
+        message:
+          'Trading account not found'
       });
     }
 
-    // Find user's portfolio
-    let portfolio = await Portfolio.findOne({
-      user: req.user.id
-    });
 
-    // Create portfolio if it doesn't exist
+    // ==========================================
+    // 5. Check wallet balance
+    // ==========================================
+
+    if (
+      totalAmount >
+      account.availableCash
+    ) {
+
+      return res.status(400).json({
+
+        success: false,
+
+        message:
+          'Insufficient wallet balance',
+
+        availableCash:
+          account.availableCash,
+
+        requiredAmount:
+          totalAmount
+      });
+    }
+
+
+    // ==========================================
+    // 6. Save wallet balance before purchase
+    // ==========================================
+
+    const balanceBefore =
+      account.availableCash;
+
+
+    // Deduct money
+
+    account.availableCash -=
+      totalAmount;
+
+
+    const balanceAfter =
+      account.availableCash;
+
+
+    // ==========================================
+    // 7. Find/Create portfolio
+    // ==========================================
+
+    let portfolio =
+      await Portfolio.findOne({
+        user: req.user.id
+      });
+
+
     if (!portfolio) {
-      portfolio = await Portfolio.create({
-        user: req.user.id,
-        stocks: []
-      });
+
+      portfolio =
+        await Portfolio.create({
+          user: req.user.id,
+          stocks: []
+        });
     }
 
-    // Find existing stock
+
+    // ==========================================
+    // 8. Find existing stock
+    // ==========================================
+
     const existingStock =
       portfolio.stocks.find(
         stock =>
           stock.symbol ===
-          quote.symbol
+          stockSymbol
       );
+
 
     if (existingStock) {
 
-      // Calculate new quantity
       const oldQuantity =
         existingStock.quantity;
+
 
       const oldInvestment =
         oldQuantity *
         existingStock.averageBuyPrice;
 
+
       const newInvestment =
-        quantity *
+        buyQuantity *
         currentPrice;
+
 
       const newQuantity =
         oldQuantity +
-        quantity;
+        buyQuantity;
 
-      // Calculate new average buy price
+
       const newAveragePrice =
-        (oldInvestment + newInvestment) /
+        (
+          oldInvestment +
+          newInvestment
+        ) /
         newQuantity;
+
 
       existingStock.quantity =
         newQuantity;
+
 
       existingStock.averageBuyPrice =
         newAveragePrice;
 
     } else {
 
-      // Add new stock
       portfolio.stocks.push({
-        symbol: quote.symbol,
+
+        symbol:
+          stockSymbol,
+
         companyName,
-        quantity,
-        averageBuyPrice: currentPrice
+
+        quantity:
+          buyQuantity,
+
+        averageBuyPrice:
+          currentPrice
       });
     }
 
-    // Save portfolio
+
+    // ==========================================
+    // 9. Update account
+    // ==========================================
+
+    account.investedAmount +=
+      totalAmount;
+
+
+    await account.save();
+
+
+    // ==========================================
+    // 10. Save portfolio
+    // ==========================================
+
     await portfolio.save();
 
-    // Calculate transaction amount
-    const totalAmount =
-      quantity * currentPrice;
 
-    // Create transaction
+    // ==========================================
+    // 11. Create BUY Order
+    // ==========================================
+
+    const order =
+      await Order.create({
+
+        user:
+          req.user.id,
+
+        symbol:
+          stockSymbol,
+
+        companyName,
+
+        orderType:
+          'MARKET',
+
+        side:
+          'BUY',
+
+        quantity:
+          buyQuantity,
+
+        price:
+          currentPrice,
+
+        totalAmount,
+
+        status:
+          'COMPLETED',
+
+        mode:
+          account.accountMode
+      });
+
+
+    // ==========================================
+    // 12. Create stock transaction
+    // ==========================================
+
     const transaction =
       await Transaction.create({
-        user: req.user.id,
-        symbol: quote.symbol,
+
+        user:
+          req.user.id,
+
+        symbol:
+          stockSymbol,
+
         companyName,
-        type: 'BUY',
-        quantity,
-        price: currentPrice,
+
+        type:
+          'BUY',
+
+        quantity:
+          buyQuantity,
+
+        price:
+          currentPrice,
+
         totalAmount
       });
 
+
+    // ==========================================
+    // 13. Create wallet transaction
+    // ==========================================
+
+    const walletTransaction =
+      await WalletTransaction.create({
+
+        user:
+          req.user.id,
+
+        type:
+          'BUY',
+
+        amount:
+          totalAmount,
+
+        balanceBefore,
+
+        balanceAfter,
+
+        description:
+          `Buy ${buyQuantity} share(s) of ${stockSymbol}`,
+
+        mode:
+          account.accountMode
+      });
+
+
+    // ==========================================
+    // 14. Send response
+    // ==========================================
+
     res.status(201).json({
+
       success: true,
-      message: 'Stock purchased successfully',
+
+      message:
+        'Stock purchased successfully',
+
+
+      // Order information
+
+      order: {
+
+        id:
+          order._id,
+
+        symbol:
+          stockSymbol,
+
+        companyName,
+
+        side:
+          'BUY',
+
+        orderType:
+          'MARKET',
+
+        quantity:
+          buyQuantity,
+
+        price:
+          currentPrice,
+
+        totalAmount,
+
+        status:
+          'COMPLETED'
+      },
+
+
+      // Purchase information
 
       purchase: {
-        symbol: quote.symbol,
+
+        symbol:
+          stockSymbol,
+
         companyName,
-        quantity,
-        price: currentPrice,
+
+        quantity:
+          buyQuantity,
+
+        price:
+          currentPrice,
+
         totalAmount
       },
 
-      transactionId: transaction._id
+
+      // Account information
+
+      account: {
+
+        availableCash:
+          account.availableCash,
+
+        investedAmount:
+          account.investedAmount
+      },
+
+
+      transactionId:
+        transaction._id,
+
+
+      walletTransactionId:
+        walletTransaction._id,
+
+
+      orderId:
+        order._id
     });
+
 
   } catch (error) {
 
     console.error(
-      'Buy stock error:',
-      error
+      '========== BUY STOCK ERROR =========='
     );
 
+    console.error(error);
+
+    console.error(
+      '======================================'
+    );
+
+
     res.status(500).json({
+
       success: false,
-      message: 'Unable to buy stock'
+
+      message:
+        'Unable to buy stock',
+
+      error:
+        error.message
     });
   }
 };
 
+
+// ==========================================
+// Sell Stock
+// ==========================================
+
+const sellStock = async (req, res) => {
+
+  try {
+
+    const {
+      symbol,
+      quantity
+    } = req.body;
+
+
+    // ==========================================
+    // 1. Validate input
+    // ==========================================
+
+    if (
+      !symbol ||
+      quantity === undefined
+    ) {
+
+      return res.status(400).json({
+        success: false,
+        message:
+          'Please provide stock symbol and quantity'
+      });
+    }
+
+
+    const sellQuantity =
+      Number(quantity);
+
+
+    if (
+      !Number.isInteger(sellQuantity) ||
+      sellQuantity <= 0
+    ) {
+
+      return res.status(400).json({
+        success: false,
+        message:
+          'Quantity must be a positive integer'
+      });
+    }
+
+
+    // ==========================================
+    // 2. Get current stock information
+    // ==========================================
+
+    const quote =
+      await getStockQuote(symbol);
+
+
+    const currentPrice =
+      quote.regularMarketPrice;
+
+
+    if (
+      !currentPrice ||
+      !Number.isFinite(currentPrice) ||
+      currentPrice <= 0
+    ) {
+
+      return res.status(400).json({
+        success: false,
+        message:
+          'Unable to get current stock price'
+      });
+    }
+
+
+    const stockSymbol =
+      quote.symbol ||
+      symbol.toUpperCase();
+
+
+    const companyName =
+      quote.shortName ||
+      quote.longName ||
+      stockSymbol;
+
+
+    // ==========================================
+    // 3. Find portfolio
+    // ==========================================
+
+    const portfolio =
+      await Portfolio.findOne({
+        user: req.user.id
+      });
+
+
+    if (!portfolio) {
+
+      return res.status(404).json({
+        success: false,
+        message:
+          'Portfolio not found'
+      });
+    }
+
+
+    // ==========================================
+    // 4. Find stock
+    // ==========================================
+
+    const existingStock =
+      portfolio.stocks.find(
+        stock =>
+          stock.symbol ===
+          stockSymbol
+      );
+
+
+    // ==========================================
+    // 5. Check ownership
+    // ==========================================
+
+    if (!existingStock) {
+
+      return res.status(400).json({
+        success: false,
+        message:
+          'You do not own this stock'
+      });
+    }
+
+
+    // ==========================================
+    // 6. Check quantity
+    // ==========================================
+
+    if (
+      sellQuantity >
+      existingStock.quantity
+    ) {
+
+      return res.status(400).json({
+
+        success: false,
+
+        message:
+          'Insufficient stock quantity',
+
+        ownedQuantity:
+          existingStock.quantity,
+
+        requestedQuantity:
+          sellQuantity
+      });
+    }
+
+
+    // ==========================================
+    // 7. Calculate selling amount
+    // ==========================================
+
+    const totalAmount =
+      sellQuantity *
+      currentPrice;
+
+
+    // ==========================================
+    // 8. Find account
+    // ==========================================
+
+    const account =
+      await Account.findOne({
+        user: req.user.id
+      });
+
+
+    if (!account) {
+
+      return res.status(404).json({
+        success: false,
+        message:
+          'Trading account not found'
+      });
+    }
+
+
+    // ==========================================
+    // 9. Balance before SELL
+    // ==========================================
+
+    const balanceBefore =
+      account.availableCash;
+
+
+    // Add money back
+
+    account.availableCash +=
+      totalAmount;
+
+
+    const balanceAfter =
+      account.availableCash;
+
+
+    // ==========================================
+    // 10. Update portfolio
+    // ==========================================
+
+    existingStock.quantity -=
+      sellQuantity;
+
+
+    if (
+      existingStock.quantity === 0
+    ) {
+
+      portfolio.stocks =
+        portfolio.stocks.filter(
+          stock =>
+            stock.symbol !==
+            stockSymbol
+        );
+    }
+
+
+    // ==========================================
+    // 11. Update invested amount
+    // ==========================================
+
+    const costBasis =
+      sellQuantity *
+      existingStock.averageBuyPrice;
+
+
+    account.investedAmount =
+      Math.max(
+        0,
+        account.investedAmount -
+        costBasis
+      );
+
+
+    // ==========================================
+    // 12. Save account & portfolio
+    // ==========================================
+
+    await account.save();
+
+    await portfolio.save();
+
+
+    // ==========================================
+    // 13. Create SELL Order
+    // ==========================================
+
+    const order =
+      await Order.create({
+
+        user:
+          req.user.id,
+
+        symbol:
+          stockSymbol,
+
+        companyName,
+
+        orderType:
+          'MARKET',
+
+        side:
+          'SELL',
+
+        quantity:
+          sellQuantity,
+
+        price:
+          currentPrice,
+
+        totalAmount,
+
+        status:
+          'COMPLETED',
+
+        mode:
+          account.accountMode
+      });
+
+
+    // ==========================================
+    // 14. Create stock transaction
+    // ==========================================
+
+    const transaction =
+      await Transaction.create({
+
+        user:
+          req.user.id,
+
+        symbol:
+          stockSymbol,
+
+        companyName,
+
+        type:
+          'SELL',
+
+        quantity:
+          sellQuantity,
+
+        price:
+          currentPrice,
+
+        totalAmount
+      });
+
+
+    // ==========================================
+    // 15. Create wallet transaction
+    // ==========================================
+
+    const walletTransaction =
+      await WalletTransaction.create({
+
+        user:
+          req.user.id,
+
+        type:
+          'SELL',
+
+        amount:
+          totalAmount,
+
+        balanceBefore,
+
+        balanceAfter,
+
+        description:
+          `Sell ${sellQuantity} share(s) of ${stockSymbol}`,
+
+        mode:
+          account.accountMode
+      });
+
+
+    // ==========================================
+    // 16. Send response
+    // ==========================================
+
+    res.status(200).json({
+
+      success: true,
+
+      message:
+        'Stock sold successfully',
+
+
+      // Order information
+
+      order: {
+
+        id:
+          order._id,
+
+        symbol:
+          stockSymbol,
+
+        companyName,
+
+        side:
+          'SELL',
+
+        orderType:
+          'MARKET',
+
+        quantity:
+          sellQuantity,
+
+        price:
+          currentPrice,
+
+        totalAmount,
+
+        status:
+          'COMPLETED'
+      },
+
+
+      // Sale information
+
+      sale: {
+
+        symbol:
+          stockSymbol,
+
+        companyName,
+
+        quantity:
+          sellQuantity,
+
+        price:
+          currentPrice,
+
+        totalAmount
+      },
+
+
+      transactionId:
+        transaction._id,
+
+
+      walletTransactionId:
+        walletTransaction._id,
+
+
+      orderId:
+        order._id,
+
+
+      availableCash:
+        account.availableCash
+    });
+
+
+  } catch (error) {
+
+    console.error(
+      '========== SELL STOCK ERROR =========='
+    );
+
+    console.error(error);
+
+    console.error(
+      '======================================'
+    );
+
+
+    res.status(500).json({
+
+      success: false,
+
+      message:
+        'Unable to sell stock',
+
+      error:
+        error.message
+    });
+  }
+};
+
+
+// ==========================================
+// Get Stock Transaction History
+// ==========================================
+
+const getTransactions = async (req, res) => {
+
+  try {
+
+    const transactions =
+      await Transaction.find({
+        user: req.user.id
+      })
+      .sort({
+        createdAt: -1
+      });
+
+
+    res.status(200).json({
+
+      success: true,
+
+      count:
+        transactions.length,
+
+      transactions
+    });
+
+
+  } catch (error) {
+
+    console.error(
+      'Get transactions error:',
+      error
+    );
+
+
+    res.status(500).json({
+
+      success: false,
+
+      message:
+        'Unable to get transaction history'
+    });
+  }
+};
+
+
+// ==========================================
+// Export
+// ==========================================
+
 module.exports = {
+
   getPortfolio,
-  buyStock
+
+  buyStock,
+
+  sellStock,
+
+  getTransactions
+
 };
