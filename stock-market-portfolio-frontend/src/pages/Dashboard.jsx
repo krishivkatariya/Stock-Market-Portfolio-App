@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { NavLink, useNavigate } from 'react-router-dom';
+import { Link, NavLink, useNavigate } from 'react-router-dom';
 
 import api from '../api/api';
 import { useAuth } from '../context/useAuth';
@@ -62,8 +62,10 @@ const Navbar = ({ user, onLogout }) => {
     { label: 'Dashboard', to: '/dashboard' },
     { label: 'Portfolio', to: '/portfolio' },
     { label: 'Watchlist', to: '/watchlist' },
+    { label: 'Orders', to: '/orders' },
     { label: 'Transactions', to: '/transactions' },
-    { label: 'Account', to: '/account' }
+    { label: 'Account', to: '/account' },
+    { label: 'Notifications', to: '/notifications' }
   ];
 
   return (
@@ -490,7 +492,11 @@ const Dashboard = () => {
                 <tbody>
                   {holdings.map((stock) => (
                     <tr key={stock.symbol}>
-                      <td>{stock.symbol}</td>
+                      <td>
+                        <Link to={`/stock/${stock.symbol}`} className="stock-symbol-link">
+                          {stock.symbol}
+                        </Link>
+                      </td>
                       <td>{stock.companyName || 'Unknown company'}</td>
                       <td>{stock.quantity}</td>
                       <td>{formatCurrency(stock.averageBuyPrice)}</td>

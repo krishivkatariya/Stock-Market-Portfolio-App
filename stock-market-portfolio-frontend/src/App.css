@@ -814,6 +814,157 @@
 }
 
 /* ==========================================
+   Orders
+========================================== */
+
+.orders-table .order-id-cell {
+  max-width: 170px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.78rem;
+  color: #6b7280;
+  font-family: 'Segoe UI Mono', 'Cascadia Mono', Consolas, monospace;
+}
+
+.order-status-badge {
+  display: inline-block;
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+}
+
+.order-status-badge.status-completed {
+  background: #ecfdf5;
+  border: 1px solid #bbf7d0;
+  color: #15803d;
+}
+
+.order-status-badge.status-pending {
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  color: #b45309;
+}
+
+.order-status-badge.status-cancelled {
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  color: #475569;
+}
+
+.order-status-badge.status-rejected {
+  background: #fff1f2;
+  border: 1px solid #fecdd3;
+  color: #b91c1c;
+}
+
+.order-status-badge.status-other {
+  background: #eef2ff;
+  border: 1px solid #c7d2fe;
+  color: #4f46e5;
+}
+
+/* ==========================================
+   Notifications
+========================================== */
+
+.notifications-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.notifications-message {
+  margin-bottom: 12px;
+}
+
+.notifications-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.notification-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 14px 4px;
+  border-bottom: 1px solid #eef2f7;
+}
+
+.notification-item:last-child {
+  border-bottom: none;
+}
+
+.notification-type-badge {
+  display: inline-block;
+  flex-shrink: 0;
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.notification-type-badge.type-order {
+  background: #eef2ff;
+  border: 1px solid #c7d2fe;
+  color: #4f46e5;
+}
+
+.notification-type-badge.type-wallet {
+  background: #ecfdf5;
+  border: 1px solid #bbf7d0;
+  color: #15803d;
+}
+
+.notification-type-badge.type-other {
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  color: #475569;
+}
+
+.notification-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.notification-title {
+  margin: 0;
+  font-weight: 700;
+  color: #172033;
+}
+
+.notification-message {
+  margin: 4px 0 0;
+  color: #6b7280;
+  font-size: 0.9rem;
+  overflow-wrap: break-word;
+}
+
+.notification-date {
+  flex-shrink: 0;
+  font-size: 0.8rem;
+  color: #9ca3af;
+  white-space: nowrap;
+}
+
+@media (max-width: 600px) {
+  .notification-item {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .notification-date {
+    white-space: normal;
+  }
+}
+
+/* ==========================================
    Account / Wallet
 ========================================== */
 
@@ -1015,4 +1166,87 @@
 .stock-details-actions .primary-button {
   flex: 1 1 140px;
   width: auto;
+}
+
+.stock-symbol-link {
+  color: #4f46e5;
+  font-weight: 700;
+  text-decoration: none;
+  transition: color 0.15s ease;
+}
+
+.stock-symbol-link:hover {
+  color: #3730a3;
+  text-decoration: underline;
+}
+
+.back-link {
+  display: inline-block;
+  margin-bottom: 10px;
+  font-size: 0.9rem;
+  color: #4f46e5;
+}
+
+.stock-details-price {
+  font-size: 1.9rem;
+  font-weight: 800;
+  color: #111827;
+}
+
+.chart-range-selector {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.range-button {
+  padding: 6px 14px;
+  border: 1px solid #e6edf8;
+  border-radius: 999px;
+  background: #f8fafc;
+  color: #374151;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.range-button:hover:not(:disabled) {
+  background: #eef2ff;
+  color: #4f46e5;
+}
+
+.range-button.active {
+  background: #4f46e5;
+  border-color: #4f46e5;
+  color: #ffffff;
+}
+
+.range-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.price-chart {
+  width: 100%;
+  height: auto;
+  max-height: 320px;
+}
+
+.chart-grid-line {
+  stroke: #e5e7eb;
+  stroke-width: 1;
+  stroke-dasharray: 4 4;
+}
+
+.chart-y-label {
+  fill: #9ca3af;
+  font-size: 11px;
+  text-anchor: start;
+}
+
+.chart-x-label {
+  fill: #9ca3af;
+  font-size: 11px;
+  text-anchor: middle;
 }

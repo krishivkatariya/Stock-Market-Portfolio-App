@@ -243,8 +243,14 @@ const Account = () => {
           <NavLink to="/transactions" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
             Transactions
           </NavLink>
+          <NavLink to="/orders" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+            Orders
+          </NavLink>
           <NavLink to="/account" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
             Account
+          </NavLink>
+          <NavLink to="/notifications" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+            Notifications
           </NavLink>
         </div>
 

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link, NavLink, useNavigate } from 'react-router-dom';
 
 import { useAuth } from '../context/useAuth';
-import { getTransactions } from '../services/transactionService';
+import { getOrders } from '../services/orderService';
 
 const formatCurrency = (value) => {
   if (value === null || value === undefined || Number.isNaN(Number(value))) {
@@ -40,7 +40,7 @@ const friendlyErrorMessage = (error) => {
 
   if (error?.response?.status === 404) {
     return error.response?.data?.message ||
-      'The transactions could not be found.';
+      'The orders could not be found.';
   }
 
   if (error?.request) {
@@ -51,18 +51,28 @@ const friendlyErrorMessage = (error) => {
     'Something went wrong. Please try again.';
 };
 
-const Transactions = () => {
+const statusBadgeClass = (status) => {
+  const normalizedStatus = String(status || '').toLowerCase();
+
+  if (['pending', 'completed', 'cancelled', 'rejected'].includes(normalizedStatus)) {
+    return `order-status-badge status-${normalizedStatus}`;
+  }
+
+  return 'order-status-badge status-other';
+};
+
+const Orders = () => {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
 
-  const [transactions, setTransactions] = useState([]);
+  const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  const fetchTransactions = useCallback(async () => {
+  const fetchOrders = useCallback(async () => {
     try {
-      const data = await getTransactions();
-      setTransactions(data?.transactions || []);
+      const data = await getOrders();
+      setOrders(data?.orders || []);
       setError('');
     } catch (fetchError) {
       if (fetchError?.response?.status === 401) {
@@ -85,7 +95,7 @@ const Transactions = () => {
         return;
       }
 
-      await fetchTransactions();
+      await fetchOrders();
     };
 
     load();
@@ -93,16 +103,16 @@ const Transactions = () => {
     return () => {
       active = false;
     };
-  }, [fetchTransactions]);
+  }, [fetchOrders]);
 
   const handleRetry = () => {
     setLoading(true);
     setError('');
-    fetchTransactions();
+    fetchOrders();
   };
 
   return (
-<div className="dashboard-app">
+    <div className="dashboard-app">
       <nav className="topbar">
         <div className="brand-wrap">
           <div className="brand-icon">₹</div>
@@ -153,6 +163,14 @@ const Transactions = () => {
             Transactions
           </NavLink>
           <NavLink
+            to="/account"
+            className={({ isActive }) =>
+              `nav-link ${isActive ? 'active' : ''}`
+            }
+          >
+            Account
+          </NavLink>
+          <NavLink
             to="/notifications"
             className={({ isActive }) =>
               `nav-link ${isActive ? 'active' : ''}`
@@ -176,16 +194,16 @@ const Transactions = () => {
 
       <main className="dashboard-main">
         <section className="page-header">
-          <p className="eyebrow">Account</p>
-          <h1>Transactions</h1>
+          <p className="eyebrow">Orders</p>
+          <h1>My Orders</h1>
           <p className="subtitle">
-            Your complete buy and sell history.
+            Every buy and sell order placed from your account.
           </p>
         </section>
 
         {loading ? (
           <section className="panel">
-            <div className="inline-loading">Loading your transactions...</div>
+            <div className="inline-loading">Loading your orders...</div>
           </section>
         ) : error ? (
           <section className="panel">
@@ -200,12 +218,12 @@ const Transactions = () => {
               </button>
             </div>
           </section>
-        ) : transactions.length === 0 ? (
+        ) : orders.length === 0 ? (
           <section className="panel">
             <div className="empty-state">
-              <p>No transactions yet.</p>
+              <p>No orders yet.</p>
               <p>
-                Buying and selling stocks will show up here as your history.
+                Buying and selling stocks will create orders that show up here.
               </p>
               <button
                 type="button"
@@ -219,47 +237,59 @@ const Transactions = () => {
         ) : (
           <section className="panel">
             <div className="panel-header">
-              <h2>Transaction History ({transactions.length})</h2>
+              <h2>Order History ({orders.length})</h2>
             </div>
 
             <div className="table-wrapper">
-              <table className="portfolio-table transactions-table">
+              <table className="portfolio-table transactions-table orders-table">
                 <thead>
                   <tr>
                     <th>Date</th>
-                    <th>Type</th>
+                    <th>Side</th>
                     <th>Symbol</th>
                     <th>Company</th>
+                    <th>Type</th>
                     <th>Quantity</th>
                     <th>Price</th>
                     <th>Total</th>
+                    <th>Status</th>
+                    <th>Order ID</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {transactions.map((transaction) => (
-                    <tr key={transaction._id}>
-                      <td>{formatDateTime(transaction.createdAt)}</td>
+                  {orders.map((order) => (
+                    <tr key={order._id}>
+                      <td>{formatDateTime(order.createdAt)}</td>
                       <td>
                         <span
                           className={
-                            transaction.type === 'BUY'
+                            order.side === 'BUY'
                               ? 'transaction-badge buy-badge'
                               : 'transaction-badge sell-badge'
                           }
                         >
-                          {transaction.type}
+                          {order.side}
                         </span>
                       </td>
                       <td className="transaction-symbol">
-                        <Link to={`/stock/${transaction.symbol}`} className="stock-symbol-link">
-                          {transaction.symbol}
+                        <Link to={`/stock/${order.symbol}`} className="stock-symbol-link">
+                          {order.symbol}
                         </Link>
                       </td>
-                      <td>{transaction.companyName || 'Unknown company'}</td>
-                      <td>{transaction.quantity}</td>
-                      <td>{formatCurrency(transaction.price)}</td>
+                      <td>{order.companyName || 'Unknown company'}</td>
+                      <td>{order.orderType || 'N/A'}</td>
+                      <td>{order.quantity}</td>
+                      <td>{formatCurrency(order.price)}</td>
                       <td className="transaction-total">
-                        {formatCurrency(transaction.totalAmount)}
+                        {formatCurrency(order.totalAmount)}
+                      </td>
+                      <td>
+                        <span className={statusBadgeClass(order.status)}>
+                          {order.status || 'N/A'}
+                        </span>
+                      </td>
+                      <td className="order-id-cell" title={order._id}>
+                        {order._id}
                       </td>
                     </tr>
                   ))}
@@ -273,4 +303,4 @@ const Transactions = () => {
   );
 };
 
-export default Transactions;
+export default Orders;

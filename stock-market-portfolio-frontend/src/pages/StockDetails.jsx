@@ -328,10 +328,12 @@ const StockDetails = () => {
   };
 
   const handleRangeChange = (nextRange) => {
+    // fetchHistory re-runs via its useEffect when `range` changes.
+    // Calling it directly here would use the stale `range` closure
+    // and race with the effect's request.
     setRange(nextRange);
     setHistoryLoading(true);
     setHistoryError('');
-    fetchHistory();
   };
 
   const handleRetryHistory = () => {
@@ -413,8 +415,221 @@ const StockDetails = () => {
     { label: 'Dashboard', to: '/dashboard' },
     { label: 'Portfolio', to: '/portfolio' },
     { label: 'Watchlist', to: '/watchlist' },
+    { label: 'Orders', to: '/orders' },
     { label: 'Transactions', to: '/transactions' },
-    { label: 'Account', to: '/account' }
+    { label: 'Account', to: '/account' },
+    { label: 'Notifications', to: '/notifications' }
   ];
 
   return (
+    <div className="dashboard-app">
+      <nav className="topbar">
+        <div className="brand-wrap">
+          <div className="brand-icon">₹</div>
+          <div>
+            <div className="brand-name">Stock Market Portfolio</div>
+          </div>
+        </div>
+
+        <div className="nav-links">
+          {navItems.map((item) => (
+            <NavLink
+              key={item.label}
+              to={item.to}
+              className={({ isActive }) =>
+                `nav-link ${isActive ? 'active' : ''}`
+              }
+            >
+              {item.label}
+            </NavLink>
+          ))}
+        </div>
+
+        <div className="topbar-user">
+          <span>{user?.name || 'Investor'}</span>
+          <button type="button" className="logout-button" onClick={logout}>
+            Logout
+          </button>
+        </div>
+      </nav>
+
+      <main className="dashboard-main">
+        <section className="page-header stock-details-header">
+          <Link to="/dashboard" className="text-button back-link">
+            ← Back to Dashboard
+          </Link>
+          <p className="eyebrow">Stock Details</p>
+          <h1>{stock?.symbol || symbol}</h1>
+          <p className="subtitle">
+            {stock?.companyName || 'Loading company information...'}
+          </p>
+        </section>
+
+        {loading ? (
+          <section className="panel">
+            <div className="inline-loading">Loading stock details...</div>
+          </section>
+        ) : error ? (
+          <section className="panel">
+            <div className="inline-error">
+              {error}
+              <button type="button" className="text-button" onClick={handleRetry}>
+                Retry
+              </button>
+            </div>
+          </section>
+        ) : stock ? (
+          <>
+            <section className="panel">
+              <div className="stock-price-section">
+                <h2 className="stock-details-price">
+                  {formatCurrency(stock.currentPrice)}
+                </h2>
+                <span className={Number(stock.change) >= 0 ? 'positive-text' : 'negative-text'}>
+                  {formatSignedCurrency(stock.change)} ({formatPercent(stock.percentChange)})
+                </span>
+              </div>
+
+              <div className="stock-details-actions">
+                <button
+                  type="button"
+                  className="primary-button quote-action-button"
+                  onClick={() => openTrade('buy')}
+                >
+                  Buy
+                </button>
+                <button
+                  type="button"
+                  className="secondary-button quote-action-button"
+                  onClick={() => openTrade('sell')}
+                  disabled={ownedQuantity <= 0}
+                >
+                  Sell
+                </button>
+                <button
+                  type="button"
+                  className="warning-button quote-action-button"
+                  onClick={handleAddToWatchlist}
+                  disabled={addingToWatchlist || inWatchlist}
+                >
+                  {inWatchlist
+                    ? 'In Watchlist ✓'
+                    : addingToWatchlist
+                      ? 'Adding...'
+                      : 'Add to Watchlist'}
+                </button>
+              </div>
+
+              {watchlistMessage ? (
+                <div className="success-message watchlist-inline-message">
+                  {watchlistMessage}
+                </div>
+              ) : null}
+
+              {watchlistError ? (
+                <div className="inline-error watchlist-inline-message">
+                  {watchlistError}
+                </div>
+              ) : null}
+            </section>
+
+            <section className="panel">
+              <div className="panel-header">
+                <h2>Price History</h2>
+                <div className="chart-range-selector">
+                  {RANGE_OPTIONS.map((option) => (
+                    <button
+                      key={option.label}
+                      type="button"
+                      className={`range-button ${range === option.value ? 'active' : ''}`}
+                      onClick={() => handleRangeChange(option.value)}
+                      disabled={historyLoading}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {historyLoading ? (
+                <div className="inline-loading">Loading price history...</div>
+              ) : historyError ? (
+                <div className="inline-error">
+                  {historyError}
+                  <button
+                    type="button"
+                    className="text-button"
+                    onClick={handleRetryHistory}
+                  >
+                    Retry
+                  </button>
+                </div>
+              ) : history.length === 0 ? (
+                <div className="empty-notes">
+                  No historical data available for this range.
+                </div>
+              ) : (
+                <PriceChart data={history} />
+              )}
+            </section>
+
+            <section className="panel">
+              <div className="panel-header">
+                <h2>Market Metrics</h2>
+              </div>
+
+              <div className="quote-grid">
+                <div className="metric-box">
+                  <span>Open</span>
+                  <strong>{formatCurrency(stock.open)}</strong>
+                </div>
+                <div className="metric-box">
+                  <span>High</span>
+                  <strong>{formatCurrency(stock.high)}</strong>
+                </div>
+                <div className="metric-box">
+                  <span>Low</span>
+                  <strong>{formatCurrency(stock.low)}</strong>
+                </div>
+                <div className="metric-box">
+                  <span>Previous Close</span>
+                  <strong>{formatCurrency(stock.previousClose)}</strong>
+                </div>
+                <div className="metric-box">
+                  <span>Volume</span>
+                  <strong>{formatCompactNumber(stock.volume)}</strong>
+                </div>
+                <div className="metric-box">
+                  <span>Market Cap</span>
+                  <strong>{formatCompactNumber(stock.marketCap)}</strong>
+                </div>
+                <div className="metric-box">
+                  <span>Your Shares</span>
+                  <strong>{ownedQuantity}</strong>
+                </div>
+                <div className="metric-box">
+                  <span>Available Cash</span>
+                  <strong>{formatCurrency(availableCash)}</strong>
+                </div>
+              </div>
+            </section>
+          </>
+        ) : null}
+      </main>
+
+      {tradeState ? (
+        <TradeModal
+          key={`${tradeState.stock.symbol}-${tradeState.mode}`}
+          isOpen
+          mode={tradeState.mode}
+          stock={tradeState.stock}
+          availableCash={availableCash}
+          onClose={closeTrade}
+          onRefresh={refreshAfterTrade}
+        />
+      ) : null}
+    </div>
+  );
+};
+
+export default StockDetails;

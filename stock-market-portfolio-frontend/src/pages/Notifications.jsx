@@ -1,20 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Link, NavLink, useNavigate } from 'react-router-dom';
+import { NavLink, useNavigate } from 'react-router-dom';
 
 import { useAuth } from '../context/useAuth';
-import { getTransactions } from '../services/transactionService';
-
-const formatCurrency = (value) => {
-  if (value === null || value === undefined || Number.isNaN(Number(value))) {
-    return '₹0.00';
-  }
-
-  return new Intl.NumberFormat('en-IN', {
-    style: 'currency',
-    currency: 'INR',
-    maximumFractionDigits: 2
-  }).format(Number(value));
-};
+import {
+  getNotifications,
+  markNotificationsRead
+} from '../services/notificationService';
 
 const formatDateTime = (value) => {
   if (!value) {
@@ -40,7 +31,7 @@ const friendlyErrorMessage = (error) => {
 
   if (error?.response?.status === 404) {
     return error.response?.data?.message ||
-      'The transactions could not be found.';
+      'The notifications could not be found.';
   }
 
   if (error?.request) {
@@ -51,18 +42,31 @@ const friendlyErrorMessage = (error) => {
     'Something went wrong. Please try again.';
 };
 
-const Transactions = () => {
+const typeBadgeClass = (type) => {
+  const normalizedType = String(type || '').toLowerCase();
+
+  if (normalizedType === 'order' || normalizedType === 'wallet') {
+    return `notification-type-badge type-${normalizedType}`;
+  }
+
+  return 'notification-type-badge type-other';
+};
+
+const Notifications = () => {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
 
-  const [transactions, setTransactions] = useState([]);
+  const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [markingRead, setMarkingRead] = useState(false);
+  const [actionMessage, setActionMessage] = useState('');
+  const [actionError, setActionError] = useState('');
 
-  const fetchTransactions = useCallback(async () => {
+  const fetchNotifications = useCallback(async () => {
     try {
-      const data = await getTransactions();
-      setTransactions(data?.transactions || []);
+      const data = await getNotifications();
+      setNotifications(data?.notifications || []);
       setError('');
     } catch (fetchError) {
       if (fetchError?.response?.status === 401) {
@@ -85,7 +89,7 @@ const Transactions = () => {
         return;
       }
 
-      await fetchTransactions();
+      await fetchNotifications();
     };
 
     load();
@@ -93,16 +97,37 @@ const Transactions = () => {
     return () => {
       active = false;
     };
-  }, [fetchTransactions]);
+  }, [fetchNotifications]);
 
   const handleRetry = () => {
     setLoading(true);
     setError('');
-    fetchTransactions();
+    fetchNotifications();
+  };
+
+  const handleMarkAllRead = async () => {
+    setMarkingRead(true);
+    setActionMessage('');
+    setActionError('');
+
+    try {
+      const data = await markNotificationsRead();
+      setActionMessage(data?.message || 'All notifications marked as read');
+    } catch (markError) {
+      if (markError?.response?.status === 401) {
+        logout();
+        navigate('/login');
+        return;
+      }
+
+      setActionError(friendlyErrorMessage(markError));
+    } finally {
+      setMarkingRead(false);
+    }
   };
 
   return (
-<div className="dashboard-app">
+    <div className="dashboard-app">
       <nav className="topbar">
         <div className="brand-wrap">
           <div className="brand-icon">₹</div>
@@ -153,6 +178,14 @@ const Transactions = () => {
             Transactions
           </NavLink>
           <NavLink
+            to="/account"
+            className={({ isActive }) =>
+              `nav-link ${isActive ? 'active' : ''}`
+            }
+          >
+            Account
+          </NavLink>
+          <NavLink
             to="/notifications"
             className={({ isActive }) =>
               `nav-link ${isActive ? 'active' : ''}`
@@ -176,16 +209,16 @@ const Transactions = () => {
 
       <main className="dashboard-main">
         <section className="page-header">
-          <p className="eyebrow">Account</p>
-          <h1>Transactions</h1>
+          <p className="eyebrow">Notifications</p>
+          <h1>Notifications</h1>
           <p className="subtitle">
-            Your complete buy and sell history.
+            Recent account and trading activity in one place.
           </p>
         </section>
 
         {loading ? (
           <section className="panel">
-            <div className="inline-loading">Loading your transactions...</div>
+            <div className="inline-loading">Loading your notifications...</div>
           </section>
         ) : error ? (
           <section className="panel">
@@ -200,12 +233,12 @@ const Transactions = () => {
               </button>
             </div>
           </section>
-        ) : transactions.length === 0 ? (
+        ) : notifications.length === 0 ? (
           <section className="panel">
             <div className="empty-state">
-              <p>No transactions yet.</p>
+              <p>No notifications yet.</p>
               <p>
-                Buying and selling stocks will show up here as your history.
+                Orders and wallet activity will show up here as they happen.
               </p>
               <button
                 type="button"
@@ -218,53 +251,52 @@ const Transactions = () => {
           </section>
         ) : (
           <section className="panel">
-            <div className="panel-header">
-              <h2>Transaction History ({transactions.length})</h2>
+            <div className="panel-header notifications-panel-header">
+              <h2>Recent Activity ({notifications.length})</h2>
+              <button
+                type="button"
+                className="text-button"
+                onClick={handleMarkAllRead}
+                disabled={markingRead}
+              >
+                {markingRead ? 'Marking...' : 'Mark all as read'}
+              </button>
             </div>
 
-            <div className="table-wrapper">
-              <table className="portfolio-table transactions-table">
-                <thead>
-                  <tr>
-                    <th>Date</th>
-                    <th>Type</th>
-                    <th>Symbol</th>
-                    <th>Company</th>
-                    <th>Quantity</th>
-                    <th>Price</th>
-                    <th>Total</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {transactions.map((transaction) => (
-                    <tr key={transaction._id}>
-                      <td>{formatDateTime(transaction.createdAt)}</td>
-                      <td>
-                        <span
-                          className={
-                            transaction.type === 'BUY'
-                              ? 'transaction-badge buy-badge'
-                              : 'transaction-badge sell-badge'
-                          }
-                        >
-                          {transaction.type}
-                        </span>
-                      </td>
-                      <td className="transaction-symbol">
-                        <Link to={`/stock/${transaction.symbol}`} className="stock-symbol-link">
-                          {transaction.symbol}
-                        </Link>
-                      </td>
-                      <td>{transaction.companyName || 'Unknown company'}</td>
-                      <td>{transaction.quantity}</td>
-                      <td>{formatCurrency(transaction.price)}</td>
-                      <td className="transaction-total">
-                        {formatCurrency(transaction.totalAmount)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            {actionMessage ? (
+              <div className="success-message notifications-message">
+                {actionMessage}
+              </div>
+            ) : null}
+            {actionError ? (
+              <div className="inline-error notifications-message">
+                {actionError}
+              </div>
+            ) : null}
+
+            <div className="notifications-list">
+              {notifications.map((notification) => (
+                <div
+                  className="notification-item"
+                  key={
+                    notification.id ||
+                    `${notification.type}-${notification.createdAt}`
+                  }
+                >
+                  <span className={typeBadgeClass(notification.type)}>
+                    {notification.type || 'info'}
+                  </span>
+                  <div className="notification-content">
+                    <p className="notification-title">{notification.title}</p>
+                    <p className="notification-message">
+                      {notification.message}
+                    </p>
+                  </div>
+                  <span className="notification-date">
+                    {formatDateTime(notification.createdAt)}
+                  </span>
+                </div>
+              ))}
             </div>
           </section>
         )}
@@ -273,4 +305,4 @@ const Transactions = () => {
   );
 };
 
-export default Transactions;
+export default Notifications;

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 
 import api from '../api/api';
 import TradeModal from '../components/TradeModal';
@@ -187,11 +187,17 @@ const PortfolioPage = () => {
           <button type="button" className="nav-link-button" onClick={() => navigate('/watchlist')}>
             Watchlist
           </button>
+          <button type="button" className="nav-link-button" onClick={() => navigate('/orders')}>
+            Orders
+          </button>
           <button type="button" className="nav-link-button" onClick={() => navigate('/transactions')}>
             Transactions
           </button>
           <button type="button" className="nav-link-button" onClick={() => navigate('/account')}>
             Account
+          </button>
+          <button type="button" className="nav-link-button" onClick={() => navigate('/notifications')}>
+            Notifications
           </button>
         </div>
 
@@ -266,7 +272,11 @@ const PortfolioPage = () => {
 
                     return (
                       <tr key={stock.symbol}>
-                        <td>{stock.symbol}</td>
+                        <td>
+                          <Link to={`/stock/${stock.symbol}`} className="stock-symbol-link">
+                            {stock.symbol}
+                          </Link>
+                        </td>
                         <td>{stock.companyName || 'Unknown company'}</td>
                         <td>{stock.quantity}</td>
                         <td>{formatCurrency(stock.averageBuyPrice)}</td>

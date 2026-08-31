@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { NavLink, useNavigate } from 'react-router-dom';
+import { Link, NavLink, useNavigate } from 'react-router-dom';
 
 import { useAuth } from '../context/useAuth';
 import {
@@ -179,6 +179,14 @@ const Watchlist = () => {
             Watchlist
           </NavLink>
           <NavLink
+            to="/orders"
+            className={({ isActive }) =>
+              `nav-link ${isActive ? 'active' : ''}`
+            }
+          >
+            Orders
+          </NavLink>
+          <NavLink
             to="/transactions"
             className={({ isActive }) =>
               `nav-link ${isActive ? 'active' : ''}`
@@ -193,6 +201,14 @@ const Watchlist = () => {
             }
           >
             Account
+          </NavLink>
+          <NavLink
+            to="/notifications"
+            className={({ isActive }) =>
+              `nav-link ${isActive ? 'active' : ''}`
+            }
+          >
+            Notifications
           </NavLink>
         </div>
 
@@ -294,7 +310,9 @@ const Watchlist = () => {
                     return (
                       <tr key={stock.symbol}>
                         <td className="watchlist-symbol">
-                          {stock.symbol}
+                          <Link to={`/stock/${stock.symbol}`} className="stock-symbol-link">
+                            {stock.symbol}
+                          </Link>
                         </td>
                         <td>{stock.companyName || 'Unknown company'}</td>
                         <td>

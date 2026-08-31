@@ -11,6 +11,8 @@ import Portfolio from './pages/Portfolio';
 import Watchlist from './pages/Watchlist';
 import Transactions from './pages/Transactions';
 import Account from './pages/Account';
+import Orders from './pages/Orders';
+import Notifications from './pages/Notifications';
 import StockDetails from './pages/StockDetails';
 import ProtectedRoute from './components/ProtectedRoute';
 
@@ -60,6 +62,16 @@ function App() {
         <Route
           path="/transactions"
           element={<Transactions />}
+        />
+
+        <Route
+          path="/orders"
+          element={<Orders />}
+        />
+
+        <Route
+          path="/notifications"
+          element={<Notifications />}
         />
 
         <Route

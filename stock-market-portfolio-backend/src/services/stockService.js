@@ -58,14 +58,48 @@ const getHistoricalData = async (
 ) => {
   const yahooSymbol = normalizeSymbol(symbol);
 
-  const historicalData = await yahooFinance.historical(
-    yahooSymbol,
-    {
-      period1,
-      period2,
-      interval
+  let historicalData;
+
+  try {
+    historicalData = await yahooFinance.historical(
+      yahooSymbol,
+      {
+        period1,
+        period2,
+        interval
+      }
+    );
+  } catch (error) {
+    // yahoo-finance2 throws when a row has SOME (but not all) null values.
+    // This happens whenever the current trading day is still in progress
+    // (close/adjclose not yet available), which breaks the price chart
+    // during market hours. Fall back to the raw chart endpoint and drop
+    // partially-null rows ourselves.
+    if (
+      !String(error?.message || '').includes(
+        'SOME (but not all) null values'
+      )
+    ) {
+      throw error;
     }
-  );
+
+    const chartResult = await yahooFinance.chart(
+      yahooSymbol,
+      {
+        period1,
+        period2,
+        interval
+      }
+    );
+
+    historicalData = (chartResult?.quotes || []).filter(
+      (row) =>
+        row &&
+        row.date &&
+        row.close !== null &&
+        row.close !== undefined
+    );
+  }
 
   return historicalData;
 };
