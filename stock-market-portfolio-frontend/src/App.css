@@ -1802,6 +1802,102 @@
   font-weight: 700;
 }
 
+/* Market overview: auto-refresh controls (timestamp + manual refresh) */
+
+.market-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px 12px;
+}
+
+.market-status-wrap {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  min-width: 0;
+}
+
+.market-status-dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-muted);
+}
+
+/* Transport / session state dot colors (theme-aware variables) */
+.market-status-dot.live {
+  background: var(--success);
+}
+
+.market-status-dot.connecting {
+  background: var(--warning);
+}
+
+.market-status-dot.reconnecting {
+  background: var(--warning);
+}
+
+.market-status-dot.closed {
+  background: var(--text-muted);
+}
+
+.market-status-dot.error {
+  background: var(--danger);
+}
+
+.market-status-text {
+  font-size: 0.8rem;
+  font-weight: 650;
+  color: var(--text-secondary);
+}
+
+.market-updated {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.market-refresh {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  font-weight: 650;
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease, background-color 0.15s ease;
+}
+
+.market-refresh svg {
+  width: 14px;
+  height: 14px;
+}
+
+.market-refresh:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.market-refresh:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.market-note {
+  margin: 0 0 12px;
+  font-size: 0.82rem;
+  color: var(--warning);
+}
+
 /* Discover: search + stock cards */
 
 .dashboard-search {
@@ -2119,6 +2215,15 @@
   .index-cards,
   .movers-grid {
     grid-template-columns: 1fr;
+  }
+
+  .dashboard-section .section-header {
+    flex-wrap: wrap;
+  }
+
+  .market-actions {
+    width: 100%;
+    justify-content: space-between;
   }
 
   .stock-cards-grid {

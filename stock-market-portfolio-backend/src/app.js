@@ -18,6 +18,8 @@ const watchlistRoutes =
 const orderRoutes = require('./routes/orderRoutes');
 const dashboardRoutes = require('./routes/dashboardRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
+const marketRoutes = require('./routes/marketRoutes');
+const marketDataService = require('./services/marketDataService');
 
 const app = express();
 
@@ -62,6 +64,9 @@ app.use(
   notificationRoutes
 );
 
+// Real-time market stream (SSE) + snapshot
+app.use('/api/market', marketRoutes);
+
 // Test route
 app.get('/', (req, res) => {
   res.json({
@@ -72,6 +77,23 @@ app.get('/', (req, res) => {
 
 const PORT = process.env.PORT || 5000;
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
+
+  // Start the ONE shared market-data loop (guarded against duplicate timers).
+  marketDataService.start();
 });
+
+// SSE-friendly server timeouts: keep long-lived event-stream connections open.
+server.keepAliveTimeout = 0;
+server.headersTimeout = 0;
+server.requestTimeout = 0;
+
+// Clean shutdown: stop the shared loop / timers and disconnect clients.
+const shutdown = () => {
+  marketDataService.stop();
+  server.close(() => process.exit(0));
+};
+
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);

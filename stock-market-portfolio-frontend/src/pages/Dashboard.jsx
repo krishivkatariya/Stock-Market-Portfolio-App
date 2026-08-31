@@ -9,6 +9,10 @@ import { getStockQuote } from '../services/stockService';
 import { getWatchlist } from '../services/watchlistService';
 import { getOrders } from '../services/orderService';
 import { getRecentStocks } from '../utils/recentStocks';
+import {
+  subscribeToMarket,
+  fetchMarketSnapshot
+} from '../services/marketStreamService';
 
 const SearchIcon = () => (
   <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -86,6 +90,18 @@ const formatDate = (value) => {
   return date.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
 };
 
+const formatUpdatedTime = (date) => {
+  if (!date || Number.isNaN(new Date(date).getTime())) {
+    return '';
+  }
+  return new Date(date).toLocaleTimeString('en-IN', {
+    hour: 'numeric',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: true
+  });
+};
+
 const friendlyError = (error, fallback) => {
   if (error?.response) {
     return error?.response?.data?.message || fallback;
@@ -122,11 +138,13 @@ const Dashboard = () => {
   const [indexes, setIndexes] = useState([]);
   const [marketLoading, setMarketLoading] = useState(true);
   const [marketError, setMarketError] = useState('');
+  const [lastMarketUpdate, setLastMarketUpdate] = useState(null);
+  const [marketStreamStatus, setMarketStreamStatus] = useState('connecting');
+  const [marketSession, setMarketSession] = useState(null); // 'open' | 'closed' | null
 
   const [discoveryCards, setDiscoveryCards] = useState([]);
   const [discoveryLoading, setDiscoveryLoading] = useState(true);
   const [discoveryError, setDiscoveryError] = useState('');
-  const [marketKey, setMarketKey] = useState(0);
   const [discoveryKey, setDiscoveryKey] = useState(0);
 
   const [watchlistStocks, setWatchlistStocks] = useState([]);
@@ -151,6 +169,7 @@ const Dashboard = () => {
 
   const searchRef = useRef(null);
   const searchInputRef = useRef(null);
+  const marketRefreshingRef = useRef(false);
 
   // ---- Core data: account, portfolio, watchlist, orders ----
   useEffect(() => {
@@ -225,21 +244,109 @@ const Dashboard = () => {
     };
   }, [refreshKey]);
 
-  // ---- Market overview: real index quotes via the existing quote endpoint ----
+  // ---- Market overview: real-time stream (SSE via marketStreamService) ----
+  // The Dashboard consumes updates pushed by the ONE shared backend loop.
+  // There is no per-browser polling interval anymore. A REST snapshot is used
+  // once for a fast first render, and the manual refresh button is a fallback.
   useEffect(() => {
     let active = true;
 
-    const load = async () => {
-      setMarketLoading(true);
-      setMarketError('');
-
-      const results = await Promise.allSettled(
-        MARKET_INDEXES.map((index) => getStockQuote(index.symbol))
-      );
-
+    const applyMessage = (data) => {
       if (!active) {
         return;
       }
+
+      if (data?.marketStatus === 'open' || data?.marketStatus === 'closed') {
+        setMarketSession(data.marketStatus);
+      }
+
+      const quotes = data?.quotes;
+      if (quotes && typeof quotes === 'object') {
+        setIndexes(() => {
+          const bySymbol = {};
+          MARKET_INDEXES.forEach((entry) => {
+            bySymbol[entry.symbol] = entry;
+          });
+
+          Object.entries(quotes).forEach(([symbol, quote]) => {
+            const base = bySymbol[symbol];
+            if (base) {
+              bySymbol[symbol] = {
+                ...base,
+                ...quote,
+                symbol,
+                // stream format uses `price`; the cards render `currentPrice`
+                currentPrice: quote.price ?? base.currentPrice
+              };
+            }
+          });
+
+          // Preserve the canonical label + order from MARKET_INDEXES.
+          return MARKET_INDEXES.map((entry) => bySymbol[entry.symbol]).filter(
+            Boolean
+          );
+        });
+      }
+
+      if (data?.status === 'error' || data?.status === 'stale') {
+        setMarketError('Market data temporarily unavailable. Retrying…');
+      } else if (data?.status && data.status !== 'heartbeat') {
+        setMarketError('');
+      }
+
+      setMarketLoading(false);
+    };
+
+    const applyStatus = (next) => {
+      if (!active) {
+        return;
+      }
+      setMarketStreamStatus(next);
+      if (next === 'connected') {
+        setMarketError('');
+      }
+      if (next === 'error') {
+        setMarketLoading(false);
+      }
+      // 'reconnecting' intentionally keeps the last valid cards on screen.
+    };
+
+    const unsubscribe = subscribeToMarket({
+      onMessage: applyMessage,
+      onStatus: applyStatus
+    });
+
+    // Fast first render: one REST snapshot from the shared backend service.
+    const fallbackTimer = window.setTimeout(async () => {
+      try {
+        const snapshot = await fetchMarketSnapshot();
+        if (active) {
+          applyMessage({ ...snapshot, status: 'updating' });
+        }
+      } catch {
+        // The stream is the primary path; ignore snapshot failure.
+      }
+    }, 1500);
+
+    return () => {
+      active = false;
+      window.clearTimeout(fallbackTimer);
+      unsubscribe();
+    };
+  }, []);
+
+  // Manual REST refresh (fallback only — not the normal live mechanism).
+  const refreshMarketQuotes = async () => {
+    if (marketRefreshingRef.current) {
+      return;
+    }
+    marketRefreshingRef.current = true;
+    setMarketLoading(true);
+
+    try {
+      const results = await Promise.allSettled(
+        MARKET_INDEXES.map((index) => getStockQuote(index.symbol))
+      );
 
       const loaded = [];
 
@@ -249,27 +356,24 @@ const Dashboard = () => {
         }
       });
 
-      if (loaded.length === 0) {
-        setIndexes([]);
-        setMarketError('Market data unavailable right now. Please try again later.');
-      } else {
+      if (loaded.length > 0) {
         setIndexes(loaded);
+        setLastMarketUpdate(new Date());
         setMarketError(
           loaded.length < MARKET_INDEXES.length
-            ? 'Some market data is unavailable right now.'
+            ? 'Some market data is temporarily unavailable. Retrying…'
             : ''
         );
+      } else {
+        setMarketError('Market data temporarily unavailable. Retrying…');
       }
-
+    } catch {
+      setMarketError('Market data temporarily unavailable. Retrying…');
+    } finally {
       setMarketLoading(false);
-    };
-
-    load();
-
-    return () => {
-      active = false;
-    };
-  }, [marketKey]);
+      marketRefreshingRef.current = false;
+    }
+  };
 
   // ---- Discover: recently viewed symbols when available, otherwise curated large caps ----
   const discoverySymbols = useMemo(
@@ -493,13 +597,32 @@ const Dashboard = () => {
   const handleTradeSuccess = () => {
     setSelectedTrade(null);
     setRefreshKey((key) => key + 1);
-    setMarketKey((key) => key + 1);
+    refreshMarketQuotes();
     setDiscoveryKey((key) => key + 1);
   };
 
   const focusSearch = () => {
     searchInputRef.current?.focus();
   };
+
+  // Market overview live-status indicator (dot + label).
+  const marketStatusDot = useMemo(() => {
+    if (marketStreamStatus === 'connecting') return 'connecting';
+    if (marketStreamStatus === 'reconnecting') return 'reconnecting';
+    if (marketStreamStatus === 'error') return 'error';
+    if (marketSession === 'closed') return 'closed';
+    return 'live';
+  }, [marketStreamStatus, marketSession]);
+
+  const marketStatusLabel = useMemo(() => {
+    if (marketStreamStatus === 'connecting') return 'Connecting…';
+    if (marketStreamStatus === 'reconnecting') return 'Reconnecting…';
+    if (marketStreamStatus === 'error') return 'Market data unavailable';
+    if (marketStreamStatus === 'connected') {
+      return marketSession === 'closed' ? 'Market closed' : 'Live';
+    }
+    return 'Connecting…';
+  }, [marketStreamStatus, marketSession]);
 
   return (
     <div className="dashboard-app">
@@ -536,40 +659,69 @@ const Dashboard = () => {
         </section>
 
         {/* ---- Market overview ---- */}
-        <section className="dashboard-section">
+        <section className="dashboard-section" aria-label="Market overview">
           <div className="section-header">
             <h2>Market Overview</h2>
-            <button type="button" className="text-button" onClick={() => setMarketKey((key) => key + 1)} disabled={marketLoading}>
-              {marketLoading ? 'Refreshing…' : 'Refresh'}
-            </button>
+            <div className="market-actions">
+              <div className="market-status-wrap">
+                <span className={`market-status-dot ${marketStatusDot}`} aria-hidden="true" />
+                <span className="market-status-text" aria-live="polite">
+                  {marketStatusLabel}
+                </span>
+                {lastMarketUpdate ? (
+                  <span className="market-updated">
+                    Last updated: {formatUpdatedTime(lastMarketUpdate)}
+                  </span>
+                ) : null}
+              </div>
+              <button
+                type="button"
+                className="market-refresh"
+                onClick={refreshMarketQuotes}
+                disabled={marketLoading}
+                aria-label="Refresh market data"
+                title="Refresh market data"
+              >
+                <RefreshIcon />
+                {marketLoading ? 'Updating…' : 'Refresh'}
+              </button>
+            </div>
           </div>
 
-          {marketError && !marketLoading ? (
-            <p className="empty-note">{marketError}</p>
-          ) : (
-            <div className="index-cards">
-              {indexes.length > 0 ? (
-                indexes.map((index) => (
-                  <div className="index-card" key={index.symbol}>
-                    <p className="index-label">{index.label}</p>
-                    <span className="index-value">{formatCurrency(index.currentPrice)}</span>
-                    <div className="index-meta">
-                      <span className={index.change >= 0 ? 'positive-text' : 'negative-text'}>
-                        {formatSignedCurrency(index.change)}
-                      </span>
-                      <span className={index.percentChange >= 0 ? 'positive-text' : 'negative-text'}>
-                        {formatPercent(index.percentChange)}
-                      </span>
-                    </div>
+          {marketError ? (
+            <p className="market-note" role="status">
+              {marketError}
+            </p>
+          ) : null}
+
+          <div className="index-cards">
+            {indexes.length > 0 ? (
+              indexes.map((index) => (
+                <div className="index-card" key={index.symbol}>
+                  <p className="index-label">{index.label}</p>
+                  <span className="index-value">{formatCurrency(index.currentPrice)}</span>
+                  <div className="index-meta">
+                    <span className={index.change >= 0 ? 'positive-text' : 'negative-text'}>
+                      {formatSignedCurrency(index.change)}
+                    </span>
+                    <span className={index.percentChange >= 0 ? 'positive-text' : 'negative-text'}>
+                      {formatPercent(index.percentChange)}
+                    </span>
                   </div>
-                ))
-              ) : (
-                <div className="index-card">
-                  <span className="skeleton skeleton-line large" />
                 </div>
-              )}
-            </div>
-          )}
+              ))
+            ) : marketLoading ? (
+              <div className="index-card">
+                <span className="skeleton skeleton-line large" />
+              </div>
+            ) : (
+              <div className="index-card">
+                <p className="index-label">NIFTY 50 · SENSEX</p>
+                <span className="index-value">--</span>
+                <p className="empty-note">Market data unavailable</p>
+              </div>
+            )}
+          </div>
         </section>
 
 
