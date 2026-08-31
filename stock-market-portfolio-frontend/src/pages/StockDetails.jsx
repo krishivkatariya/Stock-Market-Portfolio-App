@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useId, useState } from 'react';
-import { Link, NavLink, useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 
 import api from '../api/api';
 import TradeModal from '../components/TradeModal';
+import { addRecentStock } from '../utils/recentStocks';
 import { useAuth } from '../context/useAuth';
 import {
   getStockQuote,
@@ -215,7 +216,7 @@ const PriceChart = ({ data }) => {
 };
 const StockDetails = () => {
   const navigate = useNavigate();
-  const { user, logout } = useAuth();
+  const { logout } = useAuth();
   const { symbol } = useParams();
 
   const [stock, setStock] = useState(null);
@@ -247,6 +248,10 @@ const StockDetails = () => {
 
       const quoteStock = quoteResponse?.stock || null;
       setStock(quoteStock);
+
+      if (quoteStock?.symbol) {
+        addRecentStock(quoteStock.symbol);
+      }
 
       setAvailableCash(Number(accountResponse?.data?.account?.availableCash ?? 0));
 
@@ -411,48 +416,8 @@ const StockDetails = () => {
     }
   }, [stock, symbol, logout, navigate]);
 
-  const navItems = [
-    { label: 'Dashboard', to: '/dashboard' },
-    { label: 'Portfolio', to: '/portfolio' },
-    { label: 'Watchlist', to: '/watchlist' },
-    { label: 'Orders', to: '/orders' },
-    { label: 'Transactions', to: '/transactions' },
-    { label: 'Account', to: '/account' },
-    { label: 'Notifications', to: '/notifications' }
-  ];
-
   return (
     <div className="dashboard-app">
-      <nav className="topbar">
-        <div className="brand-wrap">
-          <div className="brand-icon">₹</div>
-          <div>
-            <div className="brand-name">Stock Market Portfolio</div>
-          </div>
-        </div>
-
-        <div className="nav-links">
-          {navItems.map((item) => (
-            <NavLink
-              key={item.label}
-              to={item.to}
-              className={({ isActive }) =>
-                `nav-link ${isActive ? 'active' : ''}`
-              }
-            >
-              {item.label}
-            </NavLink>
-          ))}
-        </div>
-
-        <div className="topbar-user">
-          <span>{user?.name || 'Investor'}</span>
-          <button type="button" className="logout-button" onClick={logout}>
-            Logout
-          </button>
-        </div>
-      </nav>
-
       <main className="dashboard-main">
         <section className="page-header stock-details-header">
           <Link to="/dashboard" className="text-button back-link">

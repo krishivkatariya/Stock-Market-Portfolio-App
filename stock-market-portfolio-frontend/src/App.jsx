@@ -15,6 +15,7 @@ import Orders from './pages/Orders';
 import Notifications from './pages/Notifications';
 import StockDetails from './pages/StockDetails';
 import ProtectedRoute from './components/ProtectedRoute';
+import Layout from './components/Layout';
 
 import './App.css';
 
@@ -43,47 +44,49 @@ function App() {
       />
 
       <Route element={<ProtectedRoute />}>
+        <Route element={<Layout />}>
 
-        <Route
-          path="/dashboard"
-          element={<Dashboard />}
-        />
+          <Route
+            path="/dashboard"
+            element={<Dashboard />}
+          />
 
-        <Route
-          path="/portfolio"
-          element={<Portfolio />}
-        />
+          <Route
+            path="/portfolio"
+            element={<Portfolio />}
+          />
 
-        <Route
-          path="/watchlist"
-          element={<Watchlist />}
-        />
+          <Route
+            path="/watchlist"
+            element={<Watchlist />}
+          />
 
-        <Route
-          path="/transactions"
-          element={<Transactions />}
-        />
+          <Route
+            path="/transactions"
+            element={<Transactions />}
+          />
 
-        <Route
-          path="/orders"
-          element={<Orders />}
-        />
+          <Route
+            path="/orders"
+            element={<Orders />}
+          />
 
-        <Route
-          path="/notifications"
-          element={<Notifications />}
-        />
+          <Route
+            path="/notifications"
+            element={<Notifications />}
+          />
 
-        <Route
-          path="/account"
-          element={<Account />}
-        />
+          <Route
+            path="/account"
+            element={<Account />}
+          />
 
-        <Route
-          path="/stock/:symbol"
-          element={<StockDetails />}
-        />
+          <Route
+            path="/stock/:symbol"
+            element={<StockDetails />}
+          />
 
+        </Route>
       </Route>
 
       <Route

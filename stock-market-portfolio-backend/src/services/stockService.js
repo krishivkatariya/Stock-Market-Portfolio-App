@@ -13,7 +13,7 @@ const normalizeSymbol = (symbol) => {
     throw new Error('Stock symbol is required');
   }
 
-  if (!/^[A-Z0-9.-]+$/.test(cleanSymbol)) {
+  if (!/^[A-Z0-9.^-]+$/.test(cleanSymbol)) {
     throw new Error(`Invalid stock symbol: ${symbol}`);
   }
 

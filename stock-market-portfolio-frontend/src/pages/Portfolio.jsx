@@ -47,7 +47,7 @@ const StatCard = ({ title, value, tone = 'neutral', subtitle }) => (
 
 const PortfolioPage = () => {
   const navigate = useNavigate();
-  const { user, logout } = useAuth();
+  const { logout } = useAuth();
 
   const [account, setAccount] = useState(null);
   const [portfolio, setPortfolio] = useState(null);
@@ -169,46 +169,6 @@ const PortfolioPage = () => {
 
   return (
     <div className="dashboard-app">
-      <nav className="topbar">
-        <div className="brand-wrap">
-          <div className="brand-icon">₹</div>
-          <div>
-            <div className="brand-name">Stock Market Portfolio</div>
-          </div>
-        </div>
-
-        <div className="nav-links">
-          <button type="button" className="nav-link-button" onClick={() => navigate('/dashboard')}>
-            Dashboard
-          </button>
-          <button type="button" className="nav-link-button active" onClick={() => navigate('/portfolio')}>
-            Portfolio
-          </button>
-          <button type="button" className="nav-link-button" onClick={() => navigate('/watchlist')}>
-            Watchlist
-          </button>
-          <button type="button" className="nav-link-button" onClick={() => navigate('/orders')}>
-            Orders
-          </button>
-          <button type="button" className="nav-link-button" onClick={() => navigate('/transactions')}>
-            Transactions
-          </button>
-          <button type="button" className="nav-link-button" onClick={() => navigate('/account')}>
-            Account
-          </button>
-          <button type="button" className="nav-link-button" onClick={() => navigate('/notifications')}>
-            Notifications
-          </button>
-        </div>
-
-        <div className="topbar-user">
-          <span>{user?.name || 'Investor'}</span>
-          <button type="button" className="logout-button" onClick={logout}>
-            Logout
-          </button>
-        </div>
-      </nav>
-
       <main className="dashboard-main">
         <section className="page-header">
           <div>

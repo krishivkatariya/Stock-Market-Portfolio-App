@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { NavLink, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 
 import { useAuth } from '../context/useAuth';
 import {
@@ -71,7 +71,7 @@ const StatCard = ({ title, value, tone = 'neutral', subtitle }) => (
 
 const Account = () => {
   const navigate = useNavigate();
-  const { user, logout } = useAuth();
+  const { logout } = useAuth();
 
   const [summary, setSummary] = useState(null);
   const [transactions, setTransactions] = useState([]);
@@ -222,46 +222,6 @@ const Account = () => {
 
   return (
 <div className="dashboard-app">
-<nav className="topbar">
-        <div className="brand-wrap">
-          <div className="brand-icon">₹</div>
-          <div>
-            <div className="brand-name">Stock Market Portfolio</div>
-          </div>
-        </div>
-
-        <div className="nav-links">
-          <NavLink to="/dashboard" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
-            Dashboard
-          </NavLink>
-          <NavLink to="/portfolio" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
-            Portfolio
-          </NavLink>
-          <NavLink to="/watchlist" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
-            Watchlist
-          </NavLink>
-          <NavLink to="/transactions" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
-            Transactions
-          </NavLink>
-          <NavLink to="/orders" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
-            Orders
-          </NavLink>
-          <NavLink to="/account" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
-            Account
-          </NavLink>
-          <NavLink to="/notifications" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
-            Notifications
-          </NavLink>
-        </div>
-
-        <div className="topbar-user">
-          <span>{user?.name || 'Investor'}</span>
-          <button type="button" className="logout-button" onClick={logout}>
-            Logout
-          </button>
-        </div>
-      </nav>
-
       <main className="dashboard-main">
         <section className="page-header">
           <div className="account-header-row">

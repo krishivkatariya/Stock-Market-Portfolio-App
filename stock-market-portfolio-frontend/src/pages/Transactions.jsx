@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Link, NavLink, useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 
 import { useAuth } from '../context/useAuth';
 import { getTransactions } from '../services/transactionService';
@@ -53,7 +53,7 @@ const friendlyErrorMessage = (error) => {
 
 const Transactions = () => {
   const navigate = useNavigate();
-  const { user, logout } = useAuth();
+  const { logout } = useAuth();
 
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -103,77 +103,6 @@ const Transactions = () => {
 
   return (
 <div className="dashboard-app">
-      <nav className="topbar">
-        <div className="brand-wrap">
-          <div className="brand-icon">₹</div>
-          <div>
-            <div className="brand-name">Stock Market Portfolio</div>
-          </div>
-        </div>
-
-        <div className="nav-links">
-          <NavLink
-            to="/dashboard"
-            className={({ isActive }) =>
-              `nav-link ${isActive ? 'active' : ''}`
-            }
-          >
-            Dashboard
-          </NavLink>
-          <NavLink
-            to="/portfolio"
-            className={({ isActive }) =>
-              `nav-link ${isActive ? 'active' : ''}`
-            }
-          >
-            Portfolio
-          </NavLink>
-          <NavLink
-            to="/watchlist"
-            className={({ isActive }) =>
-              `nav-link ${isActive ? 'active' : ''}`
-            }
-          >
-            Watchlist
-          </NavLink>
-          <NavLink
-            to="/orders"
-            className={({ isActive }) =>
-              `nav-link ${isActive ? 'active' : ''}`
-            }
-          >
-            Orders
-          </NavLink>
-          <NavLink
-            to="/transactions"
-            className={({ isActive }) =>
-              `nav-link ${isActive ? 'active' : ''}`
-            }
-          >
-            Transactions
-          </NavLink>
-          <NavLink
-            to="/notifications"
-            className={({ isActive }) =>
-              `nav-link ${isActive ? 'active' : ''}`
-            }
-          >
-            Notifications
-          </NavLink>
-        </div>
-
-        <div className="topbar-user">
-          <span>{user?.name || 'Investor'}</span>
-          <button
-            type="button"
-            className="logout-button"
-            onClick={logout}
-          >
-            Logout
-          </button>
-        </div>
-      </nav>
-
       <main className="dashboard-main">
         <section className="page-header">
           <p className="eyebrow">Account</p>

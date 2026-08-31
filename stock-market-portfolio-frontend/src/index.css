@@ -1,4 +1,12 @@
+/* ==========================================================
+   StockPilot — global design tokens
+   Light theme defaults, dark overrides via [data-theme="dark"]
+========================================================== */
+
 :root {
+  color-scheme: light;
+
+  /* Typography */
   font-family:
     Inter,
     system-ui,
@@ -7,13 +15,102 @@
     "Segoe UI",
     sans-serif;
 
-  color: #172033;
-  background: #f5f7fb;
+  /* Backgrounds & surfaces */
+  --bg-primary: #f5f6fa;
+  --bg-secondary: #eef0f6;
+  --surface: #ffffff;
+  --surface-hover: #f2f4f9;
+  --sidebar-bg: #ffffff;
+  --topbar-bg: rgba(255, 255, 255, 0.86);
+  --table-head-bg: #f8f9fc;
+
+  /* Text */
+  --text-primary: #131a2a;
+  --text-secondary: #545e73;
+  --text-muted: #8a93a6;
+
+  /* Borders & shadows */
+  --border: #e4e7ef;
+  --border-strong: #d3d8e4;
+  --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.05);
+  --shadow-md: 0 8px 24px rgba(16, 24, 40, 0.07);
+  --shadow-lg: 0 18px 48px rgba(16, 24, 40, 0.16);
+  --overlay: rgba(17, 24, 39, 0.5);
+
+  /* Accent (professional broker blue) */
+  --accent: #2563eb;
+  --accent-hover: #1d4ed8;
+  --accent-contrast: #ffffff;
+  --accent-soft: rgba(37, 99, 235, 0.1);
+  --accent-weak: #f2f6ff;
+
+  /* Semantic */
+  --success: #15803d;
+  --success-strong: #166534;
+  --success-weak: #ecfdf5;
+  --danger: #dc2626;
+  --danger-strong: #b91c1c;
+  --danger-weak: #fef2f2;
+  --warning: #b45309;
+  --warning-weak: #fffbeb;
+  --info: #4f46e5;
+  --info-weak: #eef2ff;
+  --violet: #7c3aed;
+  --violet-weak: #f5f3ff;
+
+  --focus-ring: 0 0 0 3px rgba(37, 99, 235, 0.16);
+
+  color: var(--text-primary);
+  background-color: var(--bg-primary);
 
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --bg-primary: #0e1219;
+  --bg-secondary: #161c26;
+  --surface: #151b25;
+  --surface-hover: #1d2431;
+  --sidebar-bg: #121822;
+  --topbar-bg: rgba(14, 18, 25, 0.88);
+  --table-head-bg: #1a2130;
+
+  --text-primary: #edf1f7;
+  --text-secondary: #a3adc0;
+  --text-muted: #6e7889;
+
+  --border: #262e3d;
+  --border-strong: #333d4f;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.38);
+  --shadow-lg: 0 18px 48px rgba(0, 0, 0, 0.55);
+  --overlay: rgba(2, 5, 10, 0.66);
+
+  --accent: #5b8af5;
+  --accent-hover: #759df8;
+  --accent-contrast: #0b1220;
+  --accent-soft: rgba(91, 138, 245, 0.16);
+  --accent-weak: #17233c;
+
+  --success: #4ade80;
+  --success-strong: #86efac;
+  --success-weak: #10281c;
+  --danger: #f87171;
+  --danger-strong: #fca5a5;
+  --danger-weak: #331718;
+  --warning: #fbbf24;
+  --warning-weak: #2e2210;
+  --info: #818cf8;
+  --info-weak: #1e2340;
+  --violet: #a78bfa;
+  --violet-weak: #241d3d;
+
+  --focus-ring: 0 0 0 3px rgba(91, 138, 245, 0.28);
 }
 
 * {
@@ -30,6 +127,9 @@ body,
 
 body {
   min-height: 100vh;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  transition: background-color 0.2s ease, color 0.2s ease;
 }
 
 button,
@@ -40,3 +140,43 @@ input {
 button {
   cursor: pointer;
 }
+
+a {
+  color: var(--accent);
+}
+
+::selection {
+  background: var(--accent-soft);
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+

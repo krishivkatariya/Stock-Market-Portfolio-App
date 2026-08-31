@@ -1,10 +1,49 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Link, NavLink, useNavigate } from 'react-router-dom';
+﻿import { useEffect, useMemo, useRef, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 
 import api from '../api/api';
 import { useAuth } from '../context/useAuth';
 import TradeModal from '../components/TradeModal';
-import { addToWatchlist } from '../services/watchlistService';
+import StockCard from '../components/StockCard';
+import { getStockQuote } from '../services/stockService';
+import { getWatchlist } from '../services/watchlistService';
+import { getOrders } from '../services/orderService';
+import { getRecentStocks } from '../utils/recentStocks';
+
+const SearchIcon = () => (
+  <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <circle cx="11" cy="11" r="6.5" />
+    <path d="M16 16l4.5 4.5" />
+  </svg>
+);
+
+const RefreshIcon = () => (
+  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M1 4v6h6" />
+    <path d="M23 20v-6h-6" />
+    <path d="M4 20a8 8 0 0 1 16-16v6" />
+  </svg>
+);
+
+const ArrowRightIcon = () => (
+  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M8 5l8 7-8 7" />
+  </svg>
+);
+
+const SEARCH_DEBOUNCE_MS = 300;
+const SEARCH_MIN_CHARS = 2;
+const SEARCH_RESULTS_LIMIT = 8;
+const PREVIEW_LIMIT = 5;
+
+// Curated large-cap symbols for Discover / Top movers.
+// Every price shown comes from the existing quote endpoint - nothing is fabricated.
+const DISCOVERY_SYMBOLS = ['RELIANCE', 'TCS', 'HDFCBANK', 'INFY', 'ICICIBANK', 'SBIN'];
+
+const MARKET_INDEXES = [
+  { symbol: '^NSEI', label: 'NIFTY 50' },
+  { symbol: '^BSESN', label: 'SENSEX' }
+];
 
 const currencyFormatter = new Intl.NumberFormat('en-IN', {
   style: 'currency',
@@ -12,151 +51,171 @@ const currencyFormatter = new Intl.NumberFormat('en-IN', {
   maximumFractionDigits: 2
 });
 
-const compactNumberFormatter = new Intl.NumberFormat('en-IN', {
-  notation: 'compact',
-  maximumFractionDigits: 2
-});
-
 const formatCurrency = (value) => {
-  if (value === null || value === undefined || Number.isNaN(Number(value))) {
-    return '₹0.00';
+  const numeric = Number(value);
+  if (value === null || value === undefined || Number.isNaN(numeric)) {
+    return '--';
   }
-
-  return currencyFormatter.format(Number(value));
-};
-
-const formatPercent = (value) => {
-  if (value === null || value === undefined || Number.isNaN(Number(value))) {
-    return '0.00%';
-  }
-
-  return `${Number(value).toFixed(2)}%`;
+  return currencyFormatter.format(numeric);
 };
 
 const formatSignedCurrency = (value) => {
-  if (value === null || value === undefined || Number.isNaN(Number(value))) {
-    return '₹0.00';
+  const numeric = Number(value);
+  if (value === null || value === undefined || Number.isNaN(numeric)) {
+    return '--';
   }
-
-  return `${value >= 0 ? '+' : '-'}${currencyFormatter.format(Math.abs(Number(value)))}`;
+  return `${numeric >= 0 ? '+' : '-'}${currencyFormatter.format(Math.abs(numeric))}`;
 };
 
-const formatCompactNumber = (value) => {
-  if (value === null || value === undefined || Number.isNaN(Number(value))) {
-    return '0';
+const formatPercent = (value) => {
+  const numeric = Number(value);
+  if (value === null || value === undefined || Number.isNaN(numeric)) {
+    return '--';
   }
-
-  return compactNumberFormatter.format(Number(value));
+  return `${numeric >= 0 ? '+' : ''}${numeric.toFixed(2)}%`;
 };
 
-const StatCard = ({ title, value, tone = 'neutral', subtitle }) => (
-  <div className={`stat-card ${tone}`}>
-    <p className="stat-label">{title}</p>
-    <h3>{value}</h3>
-    {subtitle ? <span className="stat-subtitle">{subtitle}</span> : null}
-  </div>
-);
+const formatDate = (value) => {
+  if (!value) {
+    return '--';
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return '--';
+  }
+  return date.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+};
 
-const Navbar = ({ user, onLogout }) => {
-  const navItems = [
-    { label: 'Dashboard', to: '/dashboard' },
-    { label: 'Portfolio', to: '/portfolio' },
-    { label: 'Watchlist', to: '/watchlist' },
-    { label: 'Orders', to: '/orders' },
-    { label: 'Transactions', to: '/transactions' },
-    { label: 'Account', to: '/account' },
-    { label: 'Notifications', to: '/notifications' }
-  ];
+const friendlyError = (error, fallback) => {
+  if (error?.response) {
+    return error?.response?.data?.message || fallback;
+  }
+  return 'Unable to reach the server. Check your connection and try again.';
+};
 
-  return (
-    <nav className="topbar">
-      <div className="brand-wrap">
-        <div className="brand-icon">₹</div>
-        <div>
-          <div className="brand-name">Stock Market Portfolio</div>
-        </div>
-      </div>
+const resultName = (result) =>
+  result?.shortname || result?.longname || result?.companyName || result?.name || result?.symbol || '';
 
-      <div className="nav-links">
-        {navItems.map((item) => (
-          <NavLink
-            key={item.label}
-            to={item.to}
-            className={({ isActive }) =>
-              `nav-link ${isActive ? 'active' : ''}`
-            }
-          >
-            {item.label}
-          </NavLink>
-        ))}
-      </div>
+const orderSide = (order) => (order?.side || order?.orderType || '').toUpperCase();
 
-      <div className="topbar-user">
-        <span>{user?.name || 'Investor'}</span>
-        <button type="button" className="logout-button" onClick={onLogout}>
-          Logout
-        </button>
-      </div>
-    </nav>
-  );
+const orderStatusClass = (status) => {
+  const normalized = (status || '').toLowerCase();
+  return ['completed', 'pending', 'cancelled', 'rejected'].includes(normalized)
+    ? normalized
+    : 'other';
 };
 
 const Dashboard = () => {
   const navigate = useNavigate();
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
 
-  const [account, setAccount] = useState(null);
-  const [portfolio, setPortfolio] = useState(null);
-  const [portfolioLoading, setPortfolioLoading] = useState(true);
-  const [portfolioError, setPortfolioError] = useState('');
+  const [availableCash, setAvailableCash] = useState(null);
+  const [holdings, setHoldings] = useState([]);
+  const [portfolioTotals, setPortfolioTotals] = useState({
+    invested: null,
+    value: null,
+    profitLoss: null
+  });
+  const [overviewLoading, setOverviewLoading] = useState(true);
 
-  const [stockQuery, setStockQuery] = useState('');
+
+  const [indexes, setIndexes] = useState([]);
+  const [marketLoading, setMarketLoading] = useState(true);
+  const [marketError, setMarketError] = useState('');
+
+  const [discoveryCards, setDiscoveryCards] = useState([]);
+  const [discoveryLoading, setDiscoveryLoading] = useState(true);
+  const [discoveryError, setDiscoveryError] = useState('');
+  const [marketKey, setMarketKey] = useState(0);
+  const [discoveryKey, setDiscoveryKey] = useState(0);
+
+  const [watchlistStocks, setWatchlistStocks] = useState([]);
+  const [watchlistLoading, setWatchlistLoading] = useState(true);
+  const [watchlistError, setWatchlistError] = useState('');
+
+  const [recentOrders, setRecentOrders] = useState([]);
+  const [ordersLoading, setOrdersLoading] = useState(true);
+  const [ordersError, setOrdersError] = useState('');
+
+  const [recentSymbols, setRecentSymbols] = useState([]);
+
+  const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
-  const [searching, setSearching] = useState(false);
+  const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState('');
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [highlightedIndex, setHighlightedIndex] = useState(-1);
 
-  const [selectedStock, setSelectedStock] = useState(null);
-  const [quoteLoading, setQuoteLoading] = useState(false);
-  const [tradeModalStock, setTradeModalStock] = useState(null);
+  const [selectedTrade, setSelectedTrade] = useState(null);
+  const [refreshKey, setRefreshKey] = useState(0);
 
-  const [watchlistActionLoading, setWatchlistActionLoading] = useState(false);
-  const [addedToWatchlist, setAddedToWatchlist] = useState(false);
-  const [watchlistMessage, setWatchlistMessage] = useState('');
+  const searchRef = useRef(null);
+  const searchInputRef = useRef(null);
 
-  const fetchDashboardData = async () => {
-    try {
-      setPortfolioLoading(true);
-
-      const [accountResponse, portfolioResponse] = await Promise.all([
-        api.get('/account'),
-        api.get('/portfolio')
-      ]);
-
-      setAccount(accountResponse.data.account || null);
-      setPortfolio(portfolioResponse.data.portfolio || null);
-    } catch (error) {
-        const message = error.response?.data?.message || 'Unable to load dashboard data.';
-
-        if (error.response?.status === 401) {
-          setPortfolioError('Session expired. Please log in again.');
-          return;
-        }
-
-        setPortfolioError(message);
-      } finally {
-        setPortfolioLoading(false);
-      }
-    };
-
+  // ---- Core data: account, portfolio, watchlist, orders ----
   useEffect(() => {
     let active = true;
 
     const load = async () => {
+      setOverviewLoading(true);
+      setWatchlistLoading(true);
+      setOrdersLoading(true);
+
+      const [accountResult, portfolioResult, watchlistResult, ordersResult] = await Promise.allSettled([
+        api.get('/account'),
+        api.get('/portfolio'),
+        getWatchlist(),
+        getOrders()
+      ]);
+
       if (!active) {
         return;
       }
 
-      await fetchDashboardData();
+      if (accountResult.status === 'fulfilled') {
+        setAvailableCash(Number(accountResult.value?.data?.account?.availableCash ?? 0));
+
+      } else {
+        setAvailableCash(null);
+
+      }
+
+      if (portfolioResult.status === 'fulfilled') {
+        const portfolio = portfolioResult.value?.data?.portfolio || {};
+        setHoldings(Array.isArray(portfolio.stocks) ? portfolio.stocks : []);
+        setPortfolioTotals({
+          invested: portfolio.totalInvestment ?? null,
+          value: portfolio.totalPortfolioValue ?? null,
+          profitLoss: portfolio.totalProfitLoss ?? null
+        });
+      } else {
+        setHoldings([]);
+        setPortfolioTotals({ invested: null, value: null, profitLoss: null });
+      }
+
+      if (watchlistResult.status === 'fulfilled') {
+        setWatchlistStocks(
+          Array.isArray(watchlistResult.value?.watchlist) ? watchlistResult.value.watchlist : []
+        );
+        setWatchlistError('');
+      } else {
+        setWatchlistStocks([]);
+        setWatchlistError(friendlyError(watchlistResult.reason, 'Could not load your watchlist.'));
+      }
+
+      if (ordersResult.status === 'fulfilled') {
+        const orders = Array.isArray(ordersResult.value?.orders) ? ordersResult.value.orders : [];
+        setRecentOrders(orders.slice(0, PREVIEW_LIMIT));
+        setOrdersError('');
+      } else {
+        setRecentOrders([]);
+        setOrdersError(friendlyError(ordersResult.reason, 'Could not load your recent orders.'));
+      }
+
+      setRecentSymbols(getRecentStocks());
+      setOverviewLoading(false);
+      setWatchlistLoading(false);
+      setOrdersLoading(false);
     };
 
     load();
@@ -164,347 +223,525 @@ const Dashboard = () => {
     return () => {
       active = false;
     };
-  }, []);
+  }, [refreshKey]);
 
-  const summaryCards = useMemo(() => {
-    const availableCash = Number(account?.availableCash ?? 0);
-    const investedAmount = Number(portfolio?.totalInvestment ?? account?.investedAmount ?? 0);
-    const portfolioValue = Number(portfolio?.totalPortfolioValue ?? account?.totalPortfolioValue ?? 0);
-    const totalProfitLoss = Number(portfolio?.totalProfitLoss ?? portfolioValue - investedAmount);
+  // ---- Market overview: real index quotes via the existing quote endpoint ----
+  useEffect(() => {
+    let active = true;
 
-    return [
-      {
-        title: 'Available Cash',
-        value: formatCurrency(availableCash),
-        tone: 'blue',
-        subtitle: 'Ready for new investments'
-      },
-      {
-        title: 'Invested Amount',
-        value: formatCurrency(investedAmount),
-        tone: 'purple',
-        subtitle: 'Total capital deployed'
-      },
-      {
-        title: 'Portfolio Value',
-        value: formatCurrency(portfolioValue),
-        tone: 'green',
-        subtitle: 'Current market value'
-      },
-      {
-        title: 'Total Profit/Loss',
-        value: formatSignedCurrency(totalProfitLoss),
-        tone: totalProfitLoss >= 0 ? 'positive' : 'negative',
-        subtitle: totalProfitLoss >= 0 ? 'Gains this cycle' : 'Current drawdown'
+    const load = async () => {
+      setMarketLoading(true);
+      setMarketError('');
+
+      const results = await Promise.allSettled(
+        MARKET_INDEXES.map((index) => getStockQuote(index.symbol))
+      );
+
+      if (!active) {
+        return;
       }
-    ];
-  }, [account, portfolio]);
 
-  const handleSearch = async (event) => {
-    event.preventDefault();
+      const loaded = [];
 
-    const query = stockQuery.trim();
-
-    if (!query) {
-      setSearchError('Please enter a stock symbol or company name.');
-      return;
-    }
-
-    setSearching(true);
-    setSearchError('');
-
-    try {
-      const response = await api.get('/stocks/search', {
-        params: { q: query }
+      results.forEach((result, position) => {
+        if (result.status === 'fulfilled' && result.value?.stock) {
+          loaded.push({ ...MARKET_INDEXES[position], ...result.value.stock });
+        }
       });
 
-      const results = response.data?.results || [];
-
-      setSearchResults(results);
-
-      if (!results.length) {
-        setSearchError('No stocks matched your search. Try a different keyword.');
+      if (loaded.length === 0) {
+        setIndexes([]);
+        setMarketError('Market data unavailable right now. Please try again later.');
+      } else {
+        setIndexes(loaded);
+        setMarketError(
+          loaded.length < MARKET_INDEXES.length
+            ? 'Some market data is unavailable right now.'
+            : ''
+        );
       }
-    } catch (error) {
-      const message = error.response?.data?.message || 'Unable to search stocks right now.';
-      setSearchError(message);
-    } finally {
-      setSearching(false);
-    }
-  };
 
-  const handleSelectStock = async (stock) => {
-    const symbol = stock?.symbol;
+      setMarketLoading(false);
+    };
+
+    load();
+
+    return () => {
+      active = false;
+    };
+  }, [marketKey]);
+
+  // ---- Discover: recently viewed symbols when available, otherwise curated large caps ----
+  const discoverySymbols = useMemo(
+    () =>
+      recentSymbols.length > 0
+        ? recentSymbols.slice(0, PREVIEW_LIMIT)
+        : DISCOVERY_SYMBOLS,
+    [recentSymbols]
+  );
+
+  useEffect(() => {
+    let active = true;
+
+    const load = async () => {
+      setDiscoveryLoading(true);
+      setDiscoveryError('');
+
+      const results = await Promise.allSettled(
+        discoverySymbols.map((symbol) => getStockQuote(symbol))
+      );
+
+      if (!active) {
+        return;
+      }
+
+      const loaded = [];
+
+      results.forEach((result) => {
+        if (result.status === 'fulfilled' && result.value?.stock) {
+          loaded.push(result.value.stock);
+        }
+      });
+
+      if (loaded.length === 0) {
+        setDiscoveryCards([]);
+        setDiscoveryError('Live stock prices are unavailable right now.');
+      } else {
+        setDiscoveryCards(loaded);
+        setDiscoveryError('');
+      }
+
+      setDiscoveryLoading(false);
+    };
+
+    load();
+
+    return () => {
+      active = false;
+    };
+  }, [discoverySymbols, discoveryKey]);
+
+  // ---- Debounced stock search (existing /stocks/search endpoint) ----
+  useEffect(() => {
+    const trimmed = searchQuery.trim();
+
+    let active = true;
+
+    const timer = setTimeout(async () => {
+      if (!active) {
+        return;
+      }
+
+      if (trimmed.length < SEARCH_MIN_CHARS) {
+        setSearchResults([]);
+        setSearchError("");
+        setSearchLoading(false);
+        setSearchOpen(false);
+        setHighlightedIndex(-1);
+        return;
+      }
+
+      setSearchLoading(true);
+      setSearchOpen(true);
+
+      try {
+        const response = await api.get("/stocks/search", {
+          params: { q: trimmed }
+        });
+
+        if (!active) {
+          return;
+        }
+
+        const quotes = Array.isArray(response?.data?.results)
+          ? response.data.results
+          : [];
+
+        setSearchResults(quotes.slice(0, SEARCH_RESULTS_LIMIT));
+        setSearchError("");
+        setHighlightedIndex(-1);
+      } catch (searchApiError) {
+        if (active) {
+          setSearchResults([]);
+          setSearchError(
+            friendlyError(searchApiError, 'Stock search is unavailable right now.')
+          );
+        }
+      } finally {
+        if (active) {
+          setSearchLoading(false);
+        }
+      }
+    }, SEARCH_DEBOUNCE_MS);
+
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [searchQuery]);
+
+  // ---- Close the search dropdown when clicking outside ----
+  useEffect(() => {
+    if (!searchOpen) {
+      return undefined;
+    }
+
+    const handlePointerDown = (event) => {
+      if (searchRef.current && !searchRef.current.contains(event.target)) {
+        setSearchOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handlePointerDown);
+
+    return () => document.removeEventListener('mousedown', handlePointerDown);
+  }, [searchOpen]);
+
+  // ---- Top movers: derived only from real quote data already loaded ----
+  const quoteCandidates = useMemo(() => {
+    const bySymbol = new Map();
+
+    [...discoveryCards, ...watchlistStocks].forEach((stock) => {
+      const percentChange = Number(stock?.percentChange);
+
+      if (stock?.symbol && !Number.isNaN(percentChange)) {
+        bySymbol.set(stock.symbol, stock);
+      }
+    });
+
+    return Array.from(bySymbol.values());
+  }, [discoveryCards, watchlistStocks]);
+
+  const topGainers = useMemo(
+    () =>
+      quoteCandidates
+        .filter((stock) => Number(stock.percentChange) > 0)
+        .sort((a, b) => Number(b.percentChange) - Number(a.percentChange))
+        .slice(0, 3),
+    [quoteCandidates]
+  );
+
+  const topLosers = useMemo(
+    () =>
+      quoteCandidates
+        .filter((stock) => Number(stock.percentChange) < 0)
+        .sort((a, b) => Number(a.percentChange) - Number(b.percentChange))
+        .slice(0, 3),
+    [quoteCandidates]
+  );
+
+  // ---- Search interaction ----
+  const selectSearchResult = (result) => {
+    const symbol = result?.symbol;
 
     if (!symbol) {
       return;
     }
 
-    setQuoteLoading(true);
-    setSearchError('');
-
-    try {
-      const response = await api.get(`/stocks/${encodeURIComponent(symbol)}`);
-      setSelectedStock(response.data.stock || null);
-      setAddedToWatchlist(false);
-      setWatchlistMessage('');
-    } catch (error) {
-      const message = error.response?.data?.message || 'Unable to load stock details.';
-      setSearchError(message);
-      setSelectedStock(null);
-    } finally {
-      setQuoteLoading(false);
-    }
+    navigate(`/stock/${encodeURIComponent(symbol)}`);
+    setSearchQuery('');
+    setSearchResults([]);
+    setSearchOpen(false);
+    setHighlightedIndex(-1);
+    searchInputRef.current?.blur();
   };
 
-  const handleAddToWatchlist = async () => {
-    if (!selectedStock || watchlistActionLoading) {
+  const handleSearchKeyDown = (event) => {
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      setSearchOpen(true);
+      setHighlightedIndex((current) =>
+        Math.min(current + 1, searchResults.length - 1)
+      );
       return;
     }
 
-    setWatchlistActionLoading(true);
-    setWatchlistMessage('');
+    if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      setHighlightedIndex((current) => Math.max(current - 1, -1));
+      return;
+    }
 
-    try {
-      await addToWatchlist(selectedStock.symbol);
-      setAddedToWatchlist(true);
-      setWatchlistMessage(
-        `${selectedStock.symbol} added to your watchlist.`
-      );
-    } catch (addError) {
-      if (addError.response?.status === 401) {
-        setWatchlistMessage('Session expired. Please log in again.');
+    if (event.key === 'Escape') {
+      setSearchOpen(false);
+      return;
+    }
+
+    if (event.key === 'Enter') {
+      event.preventDefault();
+
+      const highlighted = searchResults[highlightedIndex];
+
+      if (highlighted) {
+        selectSearchResult(highlighted);
         return;
       }
 
-      setWatchlistMessage(
-        addError.response?.data?.message ||
-          'Unable to add this stock to your watchlist. Please try again.'
-      );
-    } finally {
-      setWatchlistActionLoading(false);
+      const symbol = searchQuery.trim().toUpperCase();
+
+      if (symbol) {
+        navigate(`/stock/${encodeURIComponent(symbol)}`);
+        setSearchOpen(false);
+        searchInputRef.current?.blur();
+      }
     }
   };
 
-  const holdings = portfolio?.stocks || [];
+  // ---- Trade modal / data refresh ----
+  const closeTradeModal = () => setSelectedTrade(null);
 
-  const handleOpenTradeModal = (stock) => {
-    if (!stock) {
-      return;
-    }
+  const handleTradeSuccess = () => {
+    setSelectedTrade(null);
+    setRefreshKey((key) => key + 1);
+    setMarketKey((key) => key + 1);
+    setDiscoveryKey((key) => key + 1);
+  };
 
-    setTradeModalStock({
-      symbol: stock.symbol,
-      companyName: stock.companyName || stock.shortName || stock.longName || stock.symbol,
-      currentPrice: stock.currentPrice,
-      ownedQuantity: 0
-    });
+  const focusSearch = () => {
+    searchInputRef.current?.focus();
   };
 
   return (
     <div className="dashboard-app">
-      <Navbar user={user} onLogout={logout} />
-
       <main className="dashboard-main">
         <section className="page-header">
           <div>
             <p className="eyebrow">Portfolio overview</p>
             <h1>Welcome, {user?.name || 'Investor'}</h1>
-            <p className="subtitle">Track your portfolio and monitor the market.</p>
+            <p className="subtitle">Track your portfolio, discover stocks, and stay on top of the market.</p>
           </div>
         </section>
 
+        {/* ---- Portfolio overview ---- */}
         <section className="stats-grid">
-          {summaryCards.map((stat) => (
-            <StatCard
-              key={stat.title}
-              title={stat.title}
-              value={stat.value}
-              tone={stat.tone}
-              subtitle={stat.subtitle}
-            />
-          ))}
+          <div className="stat-card blue">
+            <p className="stat-label">Available Cash</p>
+            <h3>{overviewLoading ? <span className="skeleton skeleton-line large" /> : formatCurrency(availableCash)}</h3>
+          </div>
+          <div className="stat-card purple">
+            <p className="stat-label">Invested</p>
+            <h3>{overviewLoading ? <span className="skeleton skeleton-line large" /> : formatCurrency(portfolioTotals.invested)}</h3>
+          </div>
+          <div className="stat-card green">
+            <p className="stat-label">Portfolio Value</p>
+            <h3>{overviewLoading ? <span className="skeleton skeleton-line large" /> : formatCurrency(portfolioTotals.value)}</h3>
+          </div>
+          <div className={`stat-card ${portfolioTotals.profitLoss >= 0 ? 'positive' : 'negative'}`}>
+            <p className="stat-label">Total P&L</p>
+            <h3>{overviewLoading ? <span className="skeleton skeleton-line large" /> : formatSignedCurrency(portfolioTotals.profitLoss)}</h3>
+            {!overviewLoading && portfolioTotals.profitLoss !== null && portfolioTotals.profitLoss !== undefined ? (
+              <p className="stat-trend">{portfolioTotals.profitLoss >= 0 ? '▲' : '▼'} vs cost</p>
+            ) : null}
+          </div>
         </section>
 
-        <section className="panel">
-          <div className="panel-header">
-            <h2>Search Stocks</h2>
-          </div>
-
-          <form className="search-form" onSubmit={handleSearch}>
-            <input
-              type="text"
-              value={stockQuery}
-              onChange={(event) => setStockQuery(event.target.value)}
-              placeholder="Search stocks..."
-              aria-label="Search stocks"
-            />
-            <button type="submit" className="primary-button" disabled={searching}>
-              {searching ? 'Searching...' : 'Search'}
+        {/* ---- Market overview ---- */}
+        <section className="dashboard-section">
+          <div className="section-header">
+            <h2>Market Overview</h2>
+            <button type="button" className="text-button" onClick={() => setMarketKey((key) => key + 1)} disabled={marketLoading}>
+              {marketLoading ? 'Refreshing…' : 'Refresh'}
             </button>
-          </form>
-
-          {searchError ? <div className="inline-error">{searchError}</div> : null}
-
-          <div className="search-results">
-            {searchResults.length > 0 ? (
-              searchResults.map((stock) => (
-                <div key={`${stock.symbol}-${stock.exchange ?? 'market'}`} className="stock-result-card-wrap">
-                  <button
-                    type="button"
-                    className="stock-result-card"
-                    onClick={() => handleSelectStock(stock)}
-                  >
-                  <div className="stock-result-main">
-                    <strong>{stock.symbol}</strong>
-                    <span>{stock.shortName || stock.longName || 'Company'}</span>
-                  </div>
-                  <div className="stock-result-meta">
-                    <span>{stock.fullExchangeName || stock.exchange || 'N/A'}</span>
-                    <span>
-                      {stock.regularMarketPrice != null ? formatCurrency(stock.regularMarketPrice) : 'N/A'}
-                    </span>
-                  </div>
-                  </button>
-                  <button type="button" className="text-button compact-link" onClick={() => navigate('/portfolio')}>
-                    View Portfolio
-                  </button>
-                </div>
-              ))
-            ) : (
-              <div className="empty-notes">Search for a stock to view available results.</div>
-            )}
-          </div>
-        </section>
-
-        <section className="panel">
-          <div className="panel-header">
-            <h2>Selected Stock</h2>
           </div>
 
-          {quoteLoading ? (
-            <div className="inline-loading">Loading stock...</div>
-          ) : selectedStock ? (
-            <div className="quote-card">
-              <div className="quote-header">
-                <div>
-                  <div className="quote-symbol">{selectedStock.symbol}</div>
-                  <div className="quote-company">{selectedStock.companyName}</div>
-                </div>
-                <div className="quote-price">{formatCurrency(selectedStock.currentPrice)}</div>
-              </div>
-
-              <div className="quote-actions">
-                <button type="button" className="primary-button quote-action-button" onClick={() => handleOpenTradeModal(selectedStock)}>
-                  Buy {selectedStock.symbol}
-                </button>
-                <button
-                  type="button"
-                  className="secondary-button quote-action-button"
-                  onClick={handleAddToWatchlist}
-                  disabled={watchlistActionLoading || addedToWatchlist}
-                >
-                  {addedToWatchlist
-                    ? 'Added to Watchlist ✓'
-                    : watchlistActionLoading
-                      ? 'Adding...'
-                      : 'Add to Watchlist'}
-                </button>
-              </div>
-
-              {watchlistMessage ? (
-                <div className={addedToWatchlist ? 'success-message watchlist-inline-message' : 'inline-error watchlist-inline-message'}>
-                  {watchlistMessage}
-                </div>
-              ) : null}
-
-              <div className="quote-grid">
-                <div className="metric-box">
-                  <span>Open</span>
-                  <strong>{formatCurrency(selectedStock.open)}</strong>
-                </div>
-                <div className="metric-box">
-                  <span>High</span>
-                  <strong>{formatCurrency(selectedStock.high)}</strong>
-                </div>
-                <div className="metric-box">
-                  <span>Low</span>
-                  <strong>{formatCurrency(selectedStock.low)}</strong>
-                </div>
-                <div className="metric-box">
-                  <span>Previous Close</span>
-                  <strong>{formatCurrency(selectedStock.previousClose)}</strong>
-                </div>
-                <div className="metric-box">
-                  <span>Change</span>
-                  <strong>{formatSignedCurrency(selectedStock.change)}</strong>
-                </div>
-                <div className="metric-box">
-                  <span>% Change</span>
-                  <strong>{formatPercent(selectedStock.percentChange)}</strong>
-                </div>
-                <div className="metric-box">
-                  <span>Volume</span>
-                  <strong>{formatCompactNumber(selectedStock.volume)}</strong>
-                </div>
-                <div className="metric-box">
-                  <span>Market Cap</span>
-                  <strong>{formatCompactNumber(selectedStock.marketCap)}</strong>
-                </div>
-              </div>
-            </div>
+          {marketError && !marketLoading ? (
+            <p className="empty-note">{marketError}</p>
           ) : (
-            <div className="empty-notes">Select a stock to view the latest quote and market metrics.</div>
+            <div className="index-cards">
+              {indexes.length > 0 ? (
+                indexes.map((index) => (
+                  <div className="index-card" key={index.symbol}>
+                    <p className="index-label">{index.label}</p>
+                    <span className="index-value">{formatCurrency(index.currentPrice)}</span>
+                    <div className="index-meta">
+                      <span className={index.change >= 0 ? 'positive-text' : 'negative-text'}>
+                        {formatSignedCurrency(index.change)}
+                      </span>
+                      <span className={index.percentChange >= 0 ? 'positive-text' : 'negative-text'}>
+                        {formatPercent(index.percentChange)}
+                      </span>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="index-card">
+                  <span className="skeleton skeleton-line large" />
+                </div>
+              )}
+            </div>
           )}
         </section>
 
-        <section className="panel">
-          <div className="panel-header">
-            <h2>My Portfolio</h2>
+
+        {/* ---- Discover stocks ---- */}
+        <section className="dashboard-section">
+          <div className="section-header">
+            <h2>Discover Stocks</h2>
           </div>
 
-          {portfolioLoading ? (
-            <div className="inline-loading">Loading portfolio...</div>
-          ) : portfolioError ? (
-            <div className="inline-error">
-              {portfolioError}
-              <button type="button" className="text-button" onClick={() => window.location.reload()}>
-                Retry
-              </button>
+          <div className="dashboard-search" ref={searchRef}>
+            <form className="search-field" role="search" onSubmit={(event) => event.preventDefault()}>
+              <SearchIcon />
+              <input
+                ref={searchInputRef}
+                type="text"
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                onKeyDown={handleSearchKeyDown}
+                placeholder="Search stocks by symbol or company name…"
+                aria-label="Search stocks by symbol or company name"
+                aria-expanded={searchOpen || undefined}
+                aria-autocomplete="list"
+                autoComplete="off"
+              />
+            </form>
+
+            {searchQuery.trim().length >= SEARCH_MIN_CHARS && (searchLoading || searchOpen) && (
+              <div className="search-dropdown" role="listbox">
+                {searchLoading ? (
+                  <p className="search-status">Searching…</p>
+                ) : searchError ? (
+                  <p className="search-status">{searchError}</p>
+                ) : searchResults.length === 0 ? (
+                  <p className="search-status">No results found</p>
+                ) : (
+                  searchResults.map((result, index) => (
+                    <button
+                      key={result.symbol || index}
+                      type="button"
+                      className={`search-option ${index === highlightedIndex ? 'highlighted' : ''}`}
+                      onMouseDown={(event) => {
+                        event.preventDefault();
+                        selectSearchResult(result);
+                      }}
+                      onClick={() => selectSearchResult(result)}
+                    >
+                      <span className="search-option-symbol">{result.symbol}</span>
+                      <span className="search-option-name">{resultName(result)}</span>
+                    </button>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
+
+          {recentSymbols.length > 0 ? (
+            <p className="stat-label" style={{ marginTop: '14px', marginBottom: '8px' }}>Recently viewed</p>
+          ) : null}
+
+          {discoveryLoading ? (
+            <div className="stock-cards-grid">
+              {Array.from({ length: 6 }).map((_, index) => (
+                <div className="stock-card" key={`skeleton-${index}`}>
+                  <span className="skeleton skeleton-line" />
+                  <span className="skeleton skeleton-line medium" />
+                  <span className="skeleton skeleton-line medium" />
+                </div>
+              ))}
             </div>
-          ) : holdings.length === 0 ? (
-            <div className="empty-state">No holdings yet. Search for a stock to begin building your portfolio.</div>
+          ) : discoveryError ? (
+            <p className="empty-note">{discoveryError}</p>
+          ) : discoveryCards.length === 0 ? (
+            <p className="empty-note">No stock data available right now.</p>
           ) : (
-            <div className="table-wrapper">
-              <table className="portfolio-table">
+            <div className="stock-cards-grid">
+              {discoveryCards.map((stock) => (
+                <StockCard
+                  key={stock.symbol}
+                  stock={stock}
+                  onClick={() => navigate(`/stock/${encodeURIComponent(stock.symbol)}`)} />
+              ))}
+            </div>
+          )}
+        </section>
+
+        {/* ---- Top movers ---- */}
+        <section className="dashboard-section">
+          <div className="section-header">
+            <h2>Top Movers</h2>
+            <span className="cell-muted">From your watchlist &amp; discovered stocks</span>
+          </div>
+
+          <div className="movers-grid">
+            <div className="mover-list">
+              {topGainers.length > 0 ? (
+                topGainers.map((stock) => (
+                  <Link to={`/stock/${encodeURIComponent(stock.symbol)}`} className="mover-row" key={`g-${stock.symbol}`}>
+                    <span className="mover-symbol">{stock.symbol}</span>
+                    <span className="mover-price">{formatCurrency(stock.currentPrice)}</span>
+                    <span className="positive-text">{formatPercent(stock.percentChange)}</span>
+                  </Link>
+                ))
+              ) : (
+                <p className="search-status">No gainers at the moment</p>
+              )}
+            </div>
+            <div className="mover-list">
+              {topLosers.length > 0 ? (
+                topLosers.map((stock) => (
+                  <Link to={`/stock/${encodeURIComponent(stock.symbol)}`} className="mover-row" key={`l-${stock.symbol}`}>
+                    <span className="mover-symbol">{stock.symbol}</span>
+                    <span className="mover-price">{formatCurrency(stock.currentPrice)}</span>
+                    <span className="negative-text">{formatPercent(stock.percentChange)}</span>
+                  </Link>
+                ))
+              ) : (
+                <p className="search-status">No losers at the moment</p>
+              )}
+            </div>
+          </div>
+        </section>
+
+
+        {/* ---- Watchlist preview ---- */}
+        <section className="dashboard-section">
+          <div className="section-header">
+            <h2>Your Watchlist</h2>
+            <button type="button" className="text-button" onClick={() => navigate('/watchlist')} disabled={watchlistLoading}>
+              <span>View all</span>
+              <ArrowRightIcon />
+            </button>
+          </div>
+
+          {watchlistLoading ? (
+            <div className="mover-list">
+              {Array.from({ length: 5 }).map((_, index) => (
+                <div className="mover-row" key={`wl-skel-${index}`}>
+                  <span className="skeleton skeleton-line medium" />
+                </div>
+              ))}
+            </div>
+          ) : watchlistError ? (
+            <p className="empty-note">{watchlistError}</p>
+          ) : watchlistStocks.length === 0 ? (
+            <div className="empty-note">
+              Your watchlist is empty. Explore and add stocks from Discover.
+            </div>
+          ) : (
+            <div className="dashboard-table-wrapper">
+              <table className="preview-table">
                 <thead>
                   <tr>
                     <th>Symbol</th>
-                    <th>Company</th>
-                    <th>Qty</th>
-                    <th>Avg Price</th>
-                    <th>Current Price</th>
-                    <th>Investment</th>
-                    <th>Current Value</th>
-                    <th>P/L</th>
+                    <th>Price</th>
+                    <th>Change</th>
+                    <th>Change %</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {holdings.map((stock) => (
+                  {watchlistStocks.slice(0, PREVIEW_LIMIT).map((stock) => (
                     <tr key={stock.symbol}>
                       <td>
-                        <Link to={`/stock/${stock.symbol}`} className="stock-symbol-link">
+<Link to={`/stock/${encodeURIComponent(stock.symbol)}`} className="cell-muted">
                           {stock.symbol}
                         </Link>
                       </td>
-                      <td>{stock.companyName || 'Unknown company'}</td>
-                      <td>{stock.quantity}</td>
-                      <td>{formatCurrency(stock.averageBuyPrice)}</td>
-                      <td>{stock.currentPrice != null ? formatCurrency(stock.currentPrice) : 'N/A'}</td>
-                      <td>{formatCurrency(stock.investment)}</td>
-                      <td>{stock.currentValue != null ? formatCurrency(stock.currentValue) : 'N/A'}</td>
-                      <td className={stock.profitLoss >= 0 ? 'positive-text' : 'negative-text'}>
-                        {stock.profitLoss != null ? formatSignedCurrency(stock.profitLoss) : 'N/A'}
+                      <td className="cell-muted">{formatCurrency(stock.currentPrice)}</td>
+                      <td className={stock.change >= 0 ? 'positive-text' : 'negative-text'}>
+                        {formatSignedCurrency(stock.change)}
+                      </td>
+                      <td className={stock.percentChange >= 0 ? 'positive-text' : 'negative-text'}>
+                        {formatPercent(stock.percentChange)}
                       </td>
                     </tr>
                   ))}
@@ -513,19 +750,172 @@ const Dashboard = () => {
             </div>
           )}
         </section>
-      </main>
 
-      {tradeModalStock ? (
-        <TradeModal
-          key={`${tradeModalStock.symbol}-buy`}
-          isOpen
-          mode="buy"
-          stock={tradeModalStock}
-          availableCash={Number(account?.availableCash ?? 0)}
-          onClose={() => setTradeModalStock(null)}
-          onRefresh={fetchDashboardData}
-        />
-      ) : null}
+        {/* ---- Portfolio preview ---- */}
+        <section className="dashboard-section">
+          <div className="section-header">
+            <h2>Your Portfolio</h2>
+            <button type="button" className="text-button" onClick={() => navigate('/portfolio')}>
+              <span>View all</span>
+              <ArrowRightIcon />
+            </button>
+          </div>
+
+          {overviewLoading ? (
+            <div className="mover-list">
+              {Array.from({ length: 5 }).map((_, index) => (
+                <div className="mover-row" key={`pf-skel-${index}`}>
+                  <span className="skeleton skeleton-line medium" />
+                </div>
+              ))}
+            </div>
+          ) : holdings.length === 0 ? (
+            <div className="empty-note">
+              You have no holdings yet. Search a stock above and place your first trade.
+            </div>
+          ) : (
+            <div className="dashboard-table-wrapper">
+              <table className="preview-table">
+                <thead>
+                  <tr>
+                    <th>Symbol</th>
+                    <th>Qty</th>
+                    <th>Current Price</th>
+                    <th>P&L</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {holdings.slice(0, PREVIEW_LIMIT).map((holding) => {
+                    const current = Number(holding.currentPrice);
+                    const owned = Number(holding.quantity);
+                    const avg = Number(holding.averageBuyPrice);
+                    const pl = Number.isNaN(current) || Number.isNaN(owned) || Number.isNaN(avg)
+                      ? null
+                      : current * owned - avg * owned;
+
+                    return (
+                      <tr key={holding.symbol}>
+                        <td>
+<Link to={`/stock/${encodeURIComponent(holding.symbol)}`} className="cell-muted">
+                            {holding.symbol}
+                          </Link>
+                        </td>
+                        <td className="cell-muted">{owned}</td>
+                        <td className="cell-muted">{formatCurrency(current)}</td>
+                        <td className={pl === null ? 'cell-muted' : pl >= 0 ? 'positive-text' : 'negative-text'}>
+                          {pl === null ? '--' : formatSignedCurrency(pl)}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+
+
+        {/* ---- Recent orders ---- */}
+        <section className="dashboard-section">
+          <div className="section-header">
+            <h2>Recent Orders</h2>
+            <button type="button" className="text-button" onClick={() => navigate('/orders')}>
+              <span>View all</span>
+              <ArrowRightIcon />
+            </button>
+          </div>
+
+          {ordersLoading ? (
+            <div className="mover-list">
+              {Array.from({ length: 5 }).map((_, index) => (
+                <div className="mover-row" key={`order-skel-${index}`}>
+                  <span className="skeleton skeleton-line medium" />
+                </div>
+              ))}
+            </div>
+          ) : ordersError ? (
+            <p className="empty-note">{ordersError}</p>
+          ) : recentOrders.length === 0 ? (
+            <div className="empty-note">
+              You have no recent orders. Place a buy or sell to get started.
+            </div>
+          ) : (
+            <div className="dashboard-table-wrapper">
+              <table className="preview-table">
+                <thead>
+                  <tr>
+                    <th>Side</th>
+                    <th>Symbol</th>
+                    <th>Qty</th>
+                    <th>Price</th>
+                    <th>Status</th>
+                    <th>Date</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {recentOrders.map((order) => (
+                    <tr key={order._id || order.id || order.symbol}>
+                      <td>
+                        <span className={`order-badge badge-${orderSide(order) === 'BUY' ? 'buy' : 'sell'}`}>
+                          {orderSide(order)}
+                        </span>
+                      </td>
+                      <td>
+<Link to={`/stock/${encodeURIComponent(order.symbol)}`} className="cell-muted">
+                          {order.symbol}
+                        </Link>
+                      </td>
+                      <td className="cell-muted">{Number(order.quantity)}</td>
+                      <td className="cell-muted">{formatCurrency(order.price)}</td>
+                      <td>
+                        <span className={`order-status-badge status-${orderStatusClass(order.status)}`}>
+                          {order.status}
+                        </span>
+                      </td>
+                      <td className="cell-muted">{formatDate(order.createdAt)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+
+        {/* ---- Quick actions ---- */}
+        <section className="dashboard-section">
+          <h2 style={{ marginTop: 0 }}>Quick Actions</h2>
+          <div className="quick-actions">
+            <button type="button" className="quick-action" onClick={focusSearch}>
+              <SearchIcon />
+              <span>Search Stocks</span>
+            </button>
+            <Link to="/portfolio" className="quick-action">
+              <RefreshIcon />
+              <span>View Portfolio</span>
+            </Link>
+            <Link to="/watchlist" className="quick-action">
+              <ArrowRightIcon />
+              <span>View Watchlist</span>
+            </Link>
+            <Link to="/account" className="quick-action">
+              <ArrowRightIcon />
+              <span>Add Funds</span>
+            </Link>
+          </div>
+        </section>
+
+        {/* ---- Trade modal ---- */}
+        {selectedTrade && (
+          <TradeModal
+            isOpen={true}
+            mode={selectedTrade.mode}
+            stock={selectedTrade.stock}
+            availableCash={availableCash}
+            onClose={closeTradeModal}
+            onRefresh={handleTradeSuccess}
+          />
+        )}
+      </main>
     </div>
   );
 };
