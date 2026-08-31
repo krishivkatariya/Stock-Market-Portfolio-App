@@ -178,6 +178,22 @@ const Watchlist = () => {
           >
             Watchlist
           </NavLink>
+          <NavLink
+            to="/transactions"
+            className={({ isActive }) =>
+              `nav-link ${isActive ? 'active' : ''}`
+            }
+          >
+            Transactions
+          </NavLink>
+          <NavLink
+            to="/account"
+            className={({ isActive }) =>
+              `nav-link ${isActive ? 'active' : ''}`
+            }
+          >
+            Account
+          </NavLink>
         </div>
 
         <div className="topbar-user">

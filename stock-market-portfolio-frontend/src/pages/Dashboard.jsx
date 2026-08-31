@@ -62,8 +62,8 @@ const Navbar = ({ user, onLogout }) => {
     { label: 'Dashboard', to: '/dashboard' },
     { label: 'Portfolio', to: '/portfolio' },
     { label: 'Watchlist', to: '/watchlist' },
-    { label: 'Transactions', to: '/dashboard' },
-    { label: 'Account', to: '/dashboard' }
+    { label: 'Transactions', to: '/transactions' },
+    { label: 'Account', to: '/account' }
   ];
 
   return (

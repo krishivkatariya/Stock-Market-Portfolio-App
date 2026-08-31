@@ -778,6 +778,122 @@
   flex: 1 1 auto;
 }
 
+/* ==========================================
+   Transactions
+========================================== */
+
+.transactions-table .transaction-symbol {
+  font-weight: 800;
+  color: #172033;
+}
+
+.transactions-table .transaction-total {
+  font-weight: 700;
+  color: #1f2937;
+}
+
+.transaction-badge {
+  display: inline-block;
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+}
+
+.buy-badge {
+  background: #ecfdf5;
+  border: 1px solid #bbf7d0;
+  color: #15803d;
+}
+
+.sell-badge {
+  background: #fff1f2;
+  border: 1px solid #fecdd3;
+  color: #b91c1c;
+}
+
+/* ==========================================
+   Account / Wallet
+========================================== */
+
+.account-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.account-mode-badge {
+  display: inline-block;
+  padding: 6px 14px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  margin-top: 8px;
+}
+
+.mode-simulation {
+  background: #eef4ff;
+  border: 1px solid #c7dcff;
+  color: #1d4ed8;
+}
+
+.mode-live {
+  background: #fff1f2;
+  border: 1px solid #fecdd3;
+  color: #b91c1c;
+}
+
+.account-message {
+  margin-bottom: 16px;
+}
+
+.fund-forms {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+}
+
+.fund-form {
+  background: #f8fafc;
+  border: 1px solid #e6edf8;
+  border-radius: 14px;
+  padding: 18px;
+}
+
+.fund-form h3 {
+  margin: 0 0 14px;
+  font-size: 1.05rem;
+  color: #111827;
+}
+
+.fund-form .form-group {
+  margin-bottom: 14px;
+}
+
+.withdraw-button {
+  background: #7c3aed;
+}
+
+.withdraw-button:hover {
+  background: #6d28d9;
+}
+
+.wallet-table .wallet-amount {
+  font-weight: 700;
+}
+
+.wallet-table .wallet-amount.inflow {
+  color: #15803d;
+}
+
+.wallet-table .wallet-amount.outflow {
+  color: #dc2626;
+}
+
 @media (max-width: 980px) {
   .stats-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -785,6 +901,10 @@
 
   .quote-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .fund-forms {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -818,16 +938,81 @@
   }
 }
 
+@media (max-width: 760px) {
+  .stock-details-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 @media (max-width: 520px) {
-  .dashboard-main {
-    padding: 20px 14px 36px;
+  .stock-details-header h1 {
+    font-size: 1.3rem;
   }
 
-  .panel {
-    padding: 18px 14px;
+  .stock-details-actions {
+    flex-direction: column;
   }
+}
 
-  .topbar {
-    padding: 16px 14px;
-  }
+/* ==========================================
+   Stock Details
+========================================== */
+
+.stock-details-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.stock-details-grid .stat-card {
+  text-align: center;
+}
+
+.stock-details-grid .stat-card h3 {
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+
+.stock-details-grid .stat-card .stat-label {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.stock-details-grid .stat-card .stat-subtitle {
+  font-size: 0.72rem;
+  color: #9ca3af;
+}
+
+.stock-price-section {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.stock-details-header .eyebrow {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.stock-details-header h1 {
+  margin: 4px 0 0;
+  font-size: 1.6rem;
+}
+
+.stock-details-header .subtitle {
+  color: #6b7280;
+}
+
+.stock-details-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.stock-details-actions .primary-button {
+  flex: 1 1 140px;
+  width: auto;
 }

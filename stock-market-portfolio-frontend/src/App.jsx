@@ -9,6 +9,9 @@ import Register from './pages/Register';
 import Dashboard from './pages/Dashboard';
 import Portfolio from './pages/Portfolio';
 import Watchlist from './pages/Watchlist';
+import Transactions from './pages/Transactions';
+import Account from './pages/Account';
+import StockDetails from './pages/StockDetails';
 import ProtectedRoute from './components/ProtectedRoute';
 
 import './App.css';
@@ -52,6 +55,21 @@ function App() {
         <Route
           path="/watchlist"
           element={<Watchlist />}
+        />
+
+        <Route
+          path="/transactions"
+          element={<Transactions />}
+        />
+
+        <Route
+          path="/account"
+          element={<Account />}
+        />
+
+        <Route
+          path="/stock/:symbol"
+          element={<StockDetails />}
         />
 
       </Route>
