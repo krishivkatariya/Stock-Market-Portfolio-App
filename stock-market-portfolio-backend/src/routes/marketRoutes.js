@@ -32,6 +32,14 @@ router.get('/stream', (req, res) => {
     // socket may already be gone; SSE headers below will fail naturally
   }
 
+  // Optional dynamic symbols the client wants live updates for
+  // (e.g. ?symbols=RELIANCE,TCS). Added to this connection's subscription;
+  // the shared backend loop de-duplicates across all connections.
+  const requestedSymbols = String(req.query.symbols || '')
+    .split(',')
+    .map((symbol) => symbol.trim().toUpperCase())
+    .filter(Boolean);
+
   res.setTimeout(0);
   res.status(200);
   res.set({
@@ -40,6 +48,10 @@ router.get('/stream', (req, res) => {
     Connection: 'keep-alive'
   });
   res.flushHeaders();
+
+  if (requestedSymbols.length > 0) {
+    marketDataService.subscribeConnection(res, requestedSymbols);
+  }
 
   marketDataService.addClient(res);
 

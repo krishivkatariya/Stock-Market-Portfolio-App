@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 
 import api from '../api/api';
@@ -10,6 +10,7 @@ import {
   getStockHistory
 } from '../services/stockService';
 import { addToWatchlist } from '../services/watchlistService';
+import { subscribeToMarketSymbols } from '../services/marketStreamService';
 
 const currencyFormatter = new Intl.NumberFormat('en-IN', {
   style: 'currency',
@@ -69,6 +70,21 @@ const formatChartDate = (value) => {
     day: '2-digit',
     month: 'short'
   }).format(date);
+};
+
+const formatUpdatedTime = (value) => {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return '';
+  }
+
+  return date.toLocaleTimeString('en-IN', {
+    hour: 'numeric',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: true
+  });
 };
 
 const friendlyErrorMessage = (error) => {
@@ -238,6 +254,12 @@ const StockDetails = () => {
   const [watchlistMessage, setWatchlistMessage] = useState('');
   const [watchlistError, setWatchlistError] = useState('');
 
+  // Live quote stream (shared marketStreamService, no new EventSource here).
+  const [streamStatus, setStreamStatus] = useState('connecting');
+  const [streamSession, setStreamSession] = useState(null); // 'open' | 'closed' | null
+  const [lastLiveUpdate, setLastLiveUpdate] = useState(null);
+  const [streamIssue, setStreamIssue] = useState(false);
+
   const fetchQuoteData = useCallback(async () => {
     try {
       const [quoteResponse, accountResponse, portfolioResponse] = await Promise.all([
@@ -289,6 +311,60 @@ const StockDetails = () => {
       active = false;
     };
   }, [fetchQuoteData]);
+
+  // ---- Live price stream ----
+  // Subscribes only to the current route symbol. When the user navigates
+  // AAPL -> MSFT, this effect cleans up the old subscription and subscribes
+  // to the new symbol automatically.
+  useEffect(() => {
+    let active = true;
+
+    const unsubscribe = subscribeToMarketSymbols([symbol], {
+      onMessage: (data) => {
+        if (!active) {
+          return;
+        }
+
+        const quote = data?.quotes?.[symbol];
+
+        // Only apply when the backend actually returned a fresh price
+        // (placeholder quotes have price === null and are ignored).
+        if (quote && quote.price !== null && quote.price !== undefined) {
+          setStock((current) =>
+            current
+              ? {
+                  ...current,
+                  currentPrice: quote.price,
+                  change: quote.change ?? current.change,
+                  percentChange: quote.percentChange ?? current.percentChange
+                }
+              : current
+          );
+          setLastLiveUpdate(new Date());
+        }
+
+        if (data?.marketStatus === 'open' || data?.marketStatus === 'closed') {
+          setStreamSession(data.marketStatus);
+        }
+
+        if (data?.status === 'error' || data?.status === 'stale') {
+          setStreamIssue(true);
+        } else if (data?.status) {
+          setStreamIssue(false);
+        }
+      },
+      onStatus: (next) => {
+        if (active) {
+          setStreamStatus(next);
+        }
+      }
+    });
+
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, [symbol]);
 
   const fetchHistory = useCallback(async () => {
     try {
@@ -396,6 +472,35 @@ const StockDetails = () => {
     setTradeState(null);
   };
 
+  // Live-status indicator state for the price section.
+  const liveStatus = useMemo(() => {
+    if (streamStatus === 'connecting') {
+      return { dot: 'connecting', label: 'Connecting…' };
+    }
+
+    if (streamStatus === 'reconnecting') {
+      return { dot: 'reconnecting', label: 'Reconnecting…' };
+    }
+
+    if (streamStatus === 'error') {
+      return { dot: 'error', label: 'Market data unavailable' };
+    }
+
+    if (streamStatus === 'connected') {
+      if (streamSession === 'closed') {
+        return { dot: 'closed', label: 'Market closed' };
+      }
+
+      if (streamIssue) {
+        return { dot: 'connecting', label: 'Market data temporarily unavailable' };
+      }
+
+      return { dot: 'live', label: 'Live' };
+    }
+
+    return { dot: 'connecting', label: 'Connecting…' };
+  }, [streamStatus, streamSession, streamIssue]);
+
   const refreshAfterTrade = useCallback(async () => {
     try {
       const [accountResponse, portfolioResponse] = await Promise.all([
@@ -453,6 +558,18 @@ const StockDetails = () => {
                 <span className={Number(stock.change) >= 0 ? 'positive-text' : 'negative-text'}>
                   {formatSignedCurrency(stock.change)} ({formatPercent(stock.percentChange)})
                 </span>
+
+                <div className="market-status-wrap">
+                  <span className={`market-status-dot ${liveStatus.dot}`} aria-hidden="true" />
+                  <span className="market-status-text" aria-live="polite">
+                    {liveStatus.label}
+                  </span>
+                  {lastLiveUpdate ? (
+                    <span className="market-updated">
+                      Last updated: {formatUpdatedTime(lastLiveUpdate)}
+                    </span>
+                  ) : null}
+                </div>
               </div>
 
               <div className="stock-details-actions">

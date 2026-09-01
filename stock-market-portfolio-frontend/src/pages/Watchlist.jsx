@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 
 import { useAuth } from '../context/useAuth';
@@ -6,6 +6,7 @@ import {
   getWatchlist,
   removeFromWatchlist
 } from '../services/watchlistService';
+import { subscribeToMarketSymbols } from '../services/marketStreamService';
 
 const formatCurrency = (value) => {
   if (value === null || value === undefined || Number.isNaN(Number(value))) {
@@ -37,6 +38,21 @@ const formatPercent = (value) => {
   }
 
   return `${Number(value).toFixed(2)}%`;
+};
+
+const formatUpdatedTime = (value) => {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return '';
+  }
+
+  return date.toLocaleTimeString('en-IN', {
+    hour: 'numeric',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: true
+  });
 };
 
 const friendlyErrorMessage = (error) => {
@@ -71,6 +87,20 @@ const Watchlist = () => {
   const [error, setError] = useState('');
   const [removingSymbol, setRemovingSymbol] = useState('');
   const [message, setMessage] = useState('');
+
+  // Live stream state (shared marketStreamService).
+  const [streamStatus, setStreamStatus] = useState('connecting');
+  const [streamSession, setStreamSession] = useState(null); // 'open' | 'closed' | null
+  const [lastLiveUpdate, setLastLiveUpdate] = useState(null);
+  const [streamIssue, setStreamIssue] = useState(false);
+
+  // Stable key derived from the current watchlist symbol set. It only changes
+  // when a symbol is added/removed, so live price updates never churn the SSE
+  // subscription.
+  const stocksKey = useMemo(
+    () => stocks.map((stock) => stock.symbol).sort().join(','),
+    [stocks]
+  );
 
   const fetchWatchlist = useCallback(async () => {
     try {
@@ -108,6 +138,70 @@ const Watchlist = () => {
     };
   }, [fetchWatchlist]);
 
+  // ---- Live price stream ----
+  // Subscribes the current watchlist symbol set to the shared market stream.
+  // Re-subscribes only when the set changes (add/remove/reload), so live price
+  // updates do not cause connection churn.
+  useEffect(() => {
+    const currentSymbols = stocksKey ? stocksKey.split(',') : [];
+    if (currentSymbols.length === 0) {
+      return undefined;
+    }
+
+    let active = true;
+
+    const unsubscribe = subscribeToMarketSymbols(currentSymbols, {
+      onMessage: (data) => {
+        if (!active) {
+          return;
+        }
+
+        const quotes = data?.quotes;
+
+        if (quotes && typeof quotes === 'object') {
+          setStocks((current) =>
+            current.map((stock) => {
+              const live = quotes[stock.symbol];
+
+              // Ignore placeholder frames (price === null) and non-matches.
+              if (live && live.price !== null && live.price !== undefined) {
+                return {
+                  ...stock,
+                  currentPrice: live.price,
+                  change: live.change ?? stock.change,
+                  percentChange: live.percentChange ?? stock.percentChange
+                };
+              }
+
+              return stock;
+            })
+          );
+          setLastLiveUpdate(new Date());
+        }
+
+        if (data?.marketStatus === 'open' || data?.marketStatus === 'closed') {
+          setStreamSession(data.marketStatus);
+        }
+
+        if (data?.status === 'error' || data?.status === 'stale') {
+          setStreamIssue(true);
+        } else if (data?.status) {
+          setStreamIssue(false);
+        }
+      },
+      onStatus: (next) => {
+        if (active) {
+          setStreamStatus(next);
+        }
+      }
+    });
+
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, [stocksKey]);
+
   const handleRetry = () => {
     setLoading(true);
     setError('');
@@ -143,6 +237,35 @@ const Watchlist = () => {
     }
   };
 
+  // Live-status indicator state for the watchlist header.
+  const liveStatus = useMemo(() => {
+    if (streamStatus === 'connecting') {
+      return { dot: 'connecting', label: 'Connecting…' };
+    }
+
+    if (streamStatus === 'reconnecting') {
+      return { dot: 'reconnecting', label: 'Reconnecting…' };
+    }
+
+    if (streamStatus === 'error') {
+      return { dot: 'error', label: 'Market data unavailable' };
+    }
+
+    if (streamStatus === 'connected') {
+      if (streamSession === 'closed') {
+        return { dot: 'closed', label: 'Market closed' };
+      }
+
+      if (streamIssue) {
+        return { dot: 'connecting', label: 'Market data temporarily unavailable' };
+      }
+
+      return { dot: 'live', label: 'Live' };
+    }
+
+    return { dot: 'connecting', label: 'Connecting…' };
+  }, [streamStatus, streamSession, streamIssue]);
+
   return (
     <div className="dashboard-app">
       <main className="dashboard-main">
@@ -156,13 +279,27 @@ const Watchlist = () => {
               </p>
             </div>
 
-            <button
-              type="button"
-              className="primary-button watchlist-add-button"
-              onClick={() => navigate('/dashboard')}
-            >
-              Add Stocks
-            </button>
+            <div className="watchlist-header-actions">
+              <div className="market-status-wrap">
+                <span className={`market-status-dot ${liveStatus.dot}`} aria-hidden="true" />
+                <span className="market-status-text" aria-live="polite">
+                  {liveStatus.label}
+                </span>
+                {lastLiveUpdate ? (
+                  <span className="market-updated">
+                    Last updated: {formatUpdatedTime(lastLiveUpdate)}
+                  </span>
+                ) : null}
+              </div>
+
+              <button
+                type="button"
+                className="primary-button watchlist-add-button"
+                onClick={() => navigate('/dashboard')}
+              >
+                Add Stocks
+              </button>
+            </div>
           </div>
         </section>
 

@@ -18,6 +18,12 @@ const RECONNECT_DELAY_MS = 3000;
 
 let eventSource = null;
 let subscriberCount = 0;
+let intentionalClose = false;
+
+// Union of symbols that live subscribers currently want (Stock Details /
+// Watchlist). The shared EventSource includes them in its query string so the
+// backend's single poll loop tracks exactly the symbols anyone needs.
+const requestedSymbols = new Set();
 
 // Each subscriber: { onMessage(message), onStatus(status) }
 const subscribers = new Set();
@@ -50,9 +56,19 @@ const notifyMessage = (message) => {
 
 const closeCurrent = () => {
   if (eventSource) {
-    eventSource.close();
+    const current = eventSource;
     eventSource = null;
+    current.close();
   }
+};
+
+const buildStreamUrl = () => {
+  if (requestedSymbols.size === 0) {
+    return STREAM_URL;
+  }
+
+  const symbols = [...requestedSymbols].map(encodeURIComponent).join(',');
+  return `${STREAM_URL}?symbols=${symbols}`;
 };
 
 const connect = () => {
@@ -67,7 +83,7 @@ const connect = () => {
 
   setStatus('connecting');
 
-  const es = new EventSource(STREAM_URL);
+  const es = new EventSource(buildStreamUrl());
   eventSource = es;
 
   es.addEventListener('market', (event) => {
@@ -86,11 +102,22 @@ const connect = () => {
 
   es.onerror = () => {
     if (es.readyState === EventSource.CLOSED) {
-      // Connection permanently closed; schedule a manual reconnect.
-      closeCurrent();
+      // Guard against double-close if a newer connection has already been made.
+      if (eventSource === es) {
+        eventSource = null;
+      }
+
       setStatus('reconnecting');
+
+      if (intentionalClose) {
+        // We closed on purpose (symbol set changed / teardown); the caller
+        // reconnects immediately if it should.
+        intentionalClose = false;
+        return;
+      }
+
       window.setTimeout(() => {
-        if (subscriberCount > 0) {
+        if (subscriberCount > 0 && !eventSource) {
           connect();
         }
       }, RECONNECT_DELAY_MS);
@@ -99,6 +126,20 @@ const connect = () => {
       setStatus('reconnecting');
     }
   };
+};
+
+// Close + reopen the shared stream so the backend sees the updated symbol set.
+const restartConnection = () => {
+  if (!eventSource) {
+    return;
+  }
+
+  intentionalClose = true;
+  closeCurrent();
+
+  if (subscriberCount > 0) {
+    connect();
+  }
 };
 
 /**
@@ -127,6 +168,46 @@ export const subscribeToMarket = (callbacks = {}) => {
     if (subscriberCount === 0) {
       closeCurrent();
       setStatus('idle');
+    }
+  };
+};
+
+/**
+ * Subscribe to real-time updates for a specific set of stock symbols.
+ *
+ * The symbols are unioned into the shared EventSource so the backend's ONE
+ * poll loop fetches each unique symbol once, no matter how many pages/symbols
+ * request it. When the set changes the shared stream reconnects once.
+ *
+ * @param {string[]} symbols - symbols to request live updates for
+ * @param {Function|{onMessage: Function, onStatus: Function}} callbacks
+ * @returns {Function} unsubscribe function
+ */
+export const subscribeToMarketSymbols = (symbols, callbacks = {}) => {
+  const clean = (symbols || [])
+    .map((symbol) => String(symbol).trim().toUpperCase())
+    .filter(Boolean);
+
+  const hadConnection = !!eventSource;
+
+  clean.forEach((symbol) => requestedSymbols.add(symbol));
+
+  const unsubscribe = subscribeToMarket(callbacks);
+
+  if (hadConnection) {
+    // An open stream exists; restart it so the backend applies the new set.
+    restartConnection();
+  }
+
+  return () => {
+    clean.forEach((symbol) => requestedSymbols.delete(symbol));
+
+    const hadOtherSubscribers = subscriberCount > 1;
+    unsubscribe();
+
+    if (hadOtherSubscribers) {
+      // The stream stays open for other subscribers; drop our symbols.
+      restartConnection();
     }
   };
 };

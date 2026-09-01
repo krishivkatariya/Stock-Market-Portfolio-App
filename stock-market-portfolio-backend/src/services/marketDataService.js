@@ -75,8 +75,15 @@ const state = {
   lastPollAt: null,
   lastError: null,
   quotes: new Map(), // symbol -> normalized snapshot
-  clients: new Set() // active SSE response objects
+  clients: new Set(), // active SSE response objects
+  connSubscriptions: new Map(), // res -> Set<symbol> requested by that connection
+  subscriptionCounts: new Map() // symbol -> number of connections requesting it
 };
+
+// Default index symbols are permanently tracked; never dropped on disconnect.
+const DEFAULT_SYMBOL_SET = new Set(
+  DEFAULT_SYMBOLS.map((entry) => entry.symbol)
+);
 
 // Build a placeholder (no price yet) for a subscribed symbol.
 const emptyQuote = (symbol, label) => ({
@@ -281,8 +288,76 @@ const addClient = (res) => {
   state.clients.add(res);
 };
 
+// Subscribe a single SSE connection to extra symbols (Stock Details /
+// Watchlist). Symbols are de-duplicated globally: many connections wanting
+// the same symbol only add ONE entry to the shared poll set.
+const subscribeConnection = (res, symbols) => {
+  const clean = [
+    ...new Set(
+      (symbols || [])
+        .map((symbol) => String(symbol).trim().toUpperCase())
+        .filter(Boolean)
+    )
+  ];
+
+  if (clean.length === 0) {
+    return;
+  }
+
+  let connSet = state.connSubscriptions.get(res);
+
+  if (!connSet) {
+    connSet = new Set();
+    state.connSubscriptions.set(res, connSet);
+  }
+
+  clean.forEach((symbol) => {
+    if (connSet.has(symbol)) {
+      return; // already requested on this connection
+    }
+
+    connSet.add(symbol);
+    state.subscriptionCounts.set(
+      symbol,
+      (state.subscriptionCounts.get(symbol) || 0) + 1
+    );
+
+    if (!state.quotes.has(symbol)) {
+      // Start tracking this symbol; the next shared poll fetches it once.
+      state.quotes.set(symbol, emptyQuote(symbol, symbol));
+    }
+  });
+
+  // Fetch newly requested symbols promptly (no-op if a poll is already
+  // running thanks to the pollInFlight guard).
+  poll();
+};
+
 const removeClient = (res) => {
   state.clients.delete(res);
+
+  // Clean up this connection's symbol subscriptions so symbols that are no
+  // longer wanted by anyone leave the shared poll set (no stale polling).
+  const connSet = state.connSubscriptions.get(res);
+
+  if (connSet) {
+    connSet.forEach((symbol) => {
+      if (DEFAULT_SYMBOL_SET.has(symbol)) {
+        return; // never drop the permanent index symbols
+      }
+
+      const count = (state.subscriptionCounts.get(symbol) || 1) - 1;
+
+      if (count <= 0) {
+        state.subscriptionCounts.delete(symbol);
+        state.quotes.delete(symbol);
+      } else {
+        state.subscriptionCounts.set(symbol, count);
+      }
+    });
+
+    state.connSubscriptions.delete(res);
+  }
 };
 
 // Current cached snapshot for REST consumers / initial SSE payload.
@@ -301,6 +376,7 @@ module.exports = {
   stop,
   addClient,
   removeClient,
+  subscribeConnection,
   getSnapshot,
   broadcast,
   isMarketOpen,
