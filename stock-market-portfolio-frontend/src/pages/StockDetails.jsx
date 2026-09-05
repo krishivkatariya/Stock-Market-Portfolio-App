@@ -254,11 +254,14 @@ const StockDetails = () => {
   const [watchlistMessage, setWatchlistMessage] = useState('');
   const [watchlistError, setWatchlistError] = useState('');
 
-  // Live quote stream (shared marketStreamService, no new EventSource here).
+    // Live quote stream (shared marketStreamService, no new EventSource here).
   const [streamStatus, setStreamStatus] = useState('connecting');
   const [streamSession, setStreamSession] = useState(null); // 'open' | 'closed' | null
   const [lastLiveUpdate, setLastLiveUpdate] = useState(null);
   const [streamIssue, setStreamIssue] = useState(false);
+  // Tracks whether the live price for this symbol came via Twelve Data WS
+  // or REST fallback, so the status label can distinguish them.
+  const [livePriceSource, setLivePriceSource] = useState(null);
 
   const fetchQuoteData = useCallback(async () => {
     try {
@@ -324,8 +327,8 @@ const StockDetails = () => {
         if (!active) {
           return;
         }
-
-        const quote = data?.quotes?.[symbol];
+        const safeSymbol = String(symbol || '').trim().toUpperCase();
+        const quote = data?.quotes?.[safeSymbol];
 
         // Only apply when the backend actually returned a fresh price
         // (placeholder quotes have price === null and are ignored).
@@ -340,6 +343,7 @@ const StockDetails = () => {
                 }
               : current
           );
+          setLivePriceSource(quote.source || null);
           setLastLiveUpdate(new Date());
         }
 
@@ -495,11 +499,19 @@ const StockDetails = () => {
         return { dot: 'connecting', label: 'Market data temporarily unavailable' };
       }
 
+      if (livePriceSource === 'twelve_data_ws') {
+        return { dot: 'live', label: 'Live (Twelve Data WS)' };
+      }
+
+      if (livePriceSource === 'rest_fallback') {
+        return { dot: 'live', label: 'Connected (REST Fallback)' };
+      }
+
       return { dot: 'live', label: 'Live' };
     }
 
     return { dot: 'connecting', label: 'Connecting…' };
-  }, [streamStatus, streamSession, streamIssue]);
+  }, [streamStatus, streamSession, streamIssue, livePriceSource]);
 
   const refreshAfterTrade = useCallback(async () => {
     try {

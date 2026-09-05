@@ -23,7 +23,8 @@ const connectDB = async () => {
     console.error('2. The username/password in .env is incorrect.');
     console.error('3. The Atlas cluster is paused or the connection string is wrong.');
     console.error(error.message);
-    process.exit(1);
+    // Continue running so market-data endpoints (WebSocket/SSE) remain available.
+    // Database-dependent routes will return appropriate errors at request time.
   }
 };
 

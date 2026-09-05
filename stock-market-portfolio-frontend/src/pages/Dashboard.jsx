@@ -141,6 +141,7 @@ const Dashboard = () => {
   const [lastMarketUpdate, setLastMarketUpdate] = useState(null);
   const [marketStreamStatus, setMarketStreamStatus] = useState('connecting');
   const [marketSession, setMarketSession] = useState(null); // 'open' | 'closed' | null
+  const [marketDataSource, setMarketDataSource] = useState(null); // 'twelve_data_ws' | 'rest_fallback' | null
 
   const [discoveryCards, setDiscoveryCards] = useState([]);
   const [discoveryLoading, setDiscoveryLoading] = useState(true);
@@ -262,6 +263,18 @@ const Dashboard = () => {
 
       const quotes = data?.quotes;
       if (quotes && typeof quotes === 'object') {
+        // Determine the dominant data source across all index quotes.
+        const indexSources = MARKET_INDEXES
+          .map((entry) => quotes[entry.symbol]?.source)
+          .filter(Boolean);
+        if (indexSources.length > 0) {
+          // 'twelve_data_ws' wins if ANY index quote came via WS.
+          const dominantSource = indexSources.includes('twelve_data_ws')
+            ? 'twelve_data_ws'
+            : 'rest_fallback';
+          setMarketDataSource(dominantSource);
+        }
+
         setIndexes(() => {
           const bySymbol = {};
           MARKET_INDEXES.forEach((entry) => {
@@ -286,6 +299,8 @@ const Dashboard = () => {
             Boolean
           );
         });
+
+        setLastMarketUpdate(new Date());
       }
 
       if (data?.status === 'error' || data?.status === 'stale') {
@@ -619,10 +634,13 @@ const Dashboard = () => {
     if (marketStreamStatus === 'reconnecting') return 'Reconnecting…';
     if (marketStreamStatus === 'error') return 'Market data unavailable';
     if (marketStreamStatus === 'connected') {
-      return marketSession === 'closed' ? 'Market closed' : 'Live';
+      if (marketSession === 'closed') return 'Market closed';
+      if (marketDataSource === 'twelve_data_ws') return 'Live (Twelve Data WS)';
+      if (marketDataSource === 'rest_fallback') return 'Connected (REST Fallback)';
+      return 'Live';
     }
     return 'Connecting…';
-  }, [marketStreamStatus, marketSession]);
+  }, [marketStreamStatus, marketSession, marketDataSource]);
 
   return (
     <div className="dashboard-app">
@@ -884,7 +902,7 @@ const Dashboard = () => {
                   {watchlistStocks.slice(0, PREVIEW_LIMIT).map((stock) => (
                     <tr key={stock.symbol}>
                       <td>
-<Link to={`/stock/${encodeURIComponent(stock.symbol)}`} className="cell-muted">
+                        <Link to={`/stock/${encodeURIComponent(stock.symbol)}`} className="cell-muted">
                           {stock.symbol}
                         </Link>
                       </td>
@@ -948,7 +966,7 @@ const Dashboard = () => {
                     return (
                       <tr key={holding.symbol}>
                         <td>
-<Link to={`/stock/${encodeURIComponent(holding.symbol)}`} className="cell-muted">
+                          <Link to={`/stock/${encodeURIComponent(holding.symbol)}`} className="cell-muted">
                             {holding.symbol}
                           </Link>
                         </td>
@@ -1013,7 +1031,7 @@ const Dashboard = () => {
                         </span>
                       </td>
                       <td>
-<Link to={`/stock/${encodeURIComponent(order.symbol)}`} className="cell-muted">
+                        <Link to={`/stock/${encodeURIComponent(order.symbol)}`} className="cell-muted">
                           {order.symbol}
                         </Link>
                       </td>

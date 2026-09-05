@@ -4,10 +4,11 @@ import { Link, useNavigate } from 'react-router-dom';
 import api from '../api/api';
 import TradeModal from '../components/TradeModal';
 import { useAuth } from '../context/useAuth';
+import { subscribeToMarketSymbols } from '../services/marketStreamService';
 
 const formatCurrency = (value) => {
   if (value === null || value === undefined || Number.isNaN(Number(value))) {
-    return '₹0.00';
+    return 'Ã¢â€šÂ¹0.00';
   }
 
   return new Intl.NumberFormat('en-IN', {
@@ -19,7 +20,7 @@ const formatCurrency = (value) => {
 
 const formatSignedCurrency = (value) => {
   if (value === null || value === undefined || Number.isNaN(Number(value))) {
-    return '₹0.00';
+    return 'Ã¢â€šÂ¹0.00';
   }
 
   return `${value >= 0 ? '+' : '-'}${new Intl.NumberFormat('en-IN', {
@@ -56,6 +57,19 @@ const PortfolioPage = () => {
   const [error, setError] = useState('');
   const [selectedTrade, setSelectedTrade] = useState(null);
   const [tradeMode, setTradeMode] = useState('buy');
+
+  // Live price overrides keyed by symbol.
+  // When a WS/REST event arrives, the current market price is updated here
+  // without touching the DB-sourced portfolio data (quantity, avg price, etc.)
+  const [livePrices, setLivePrices] = useState({});
+
+  // Stream connection status for the indicator.
+  const [streamStatus, setStreamStatus] = useState('connecting');
+  const [streamSession, setStreamSession] = useState(null);
+  const [lastLiveUpdate, setLastLiveUpdate] = useState(null);
+  // Dominant data source: 'twelve_data_ws' if any holding has live ticks,
+  // otherwise 'rest_fallback'.
+  const [liveDataSource, setLiveDataSource] = useState(null);
 
   const fetchAccount = useCallback(async () => {
     try {
@@ -116,22 +130,162 @@ const PortfolioPage = () => {
     };
   }, [refreshPortfolioData]);
 
+  // ---- Live price stream ----
+  // Subscribe to all holding symbols so their current prices update in real
+  // time whenever fresh market data arrives (WS or REST fallback).
+  // Only recalculates when the portfolio's symbol set changes.
+  const holdingSymbols = useMemo(
+    () => (portfolio?.stocks || []).map((s) => s.symbol),
+    [portfolio]
+  );
+
+  const holdingSymbolsKey = useMemo(
+    () => [...holdingSymbols].sort().join(','),
+    [holdingSymbols]
+  );
+
+  useEffect(() => {
+    if (holdingSymbols.length === 0) {
+      return undefined;
+    }
+
+    let active = true;
+
+    const unsubscribe = subscribeToMarketSymbols(holdingSymbols, {
+      onMessage: (data) => {
+        if (!active) {
+          return;
+        }
+
+        const quotes = data?.quotes;
+
+        if (quotes && typeof quotes === 'object') {
+          // Track dominant source across holding symbols.
+          const wsSupported = holdingSymbols.some(
+            (sym) => quotes[sym]?.source === 'twelve_data_ws'
+          );
+          setLiveDataSource(
+            wsSupported ? 'twelve_data_ws' : 'rest_fallback'
+          );
+
+          setLivePrices((prev) => {
+            const next = { ...prev };
+            let changed = false;
+
+            holdingSymbols.forEach((sym) => {
+              const live = quotes[sym];
+              if (live && live.price !== null && live.price !== undefined) {
+                next[sym] = Number(live.price);
+                changed = true;
+              }
+            });
+
+            return changed ? next : prev;
+          });
+
+          setLastLiveUpdate(new Date());
+        }
+
+        if (data?.marketStatus === 'open' || data?.marketStatus === 'closed') {
+          setStreamSession(data.marketStatus);
+        }
+      },
+      onStatus: (next) => {
+        if (active) {
+          setStreamStatus(next);
+        }
+      }
+    });
+
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [holdingSymbolsKey]);
+
+  // Holdings with live market-value calculations applied.
+  // DB fields (quantity, averageBuyPrice, investment) are NEVER modified.
+  // Only currentPrice, currentValue, and profitLoss are recalculated from
+  // live data when available.
+  const enrichedHoldings = useMemo(() => {
+    return (portfolio?.stocks || []).map((stock) => {
+      const livePrice = livePrices[stock.symbol];
+      const currentPrice = livePrice !== undefined ? livePrice : Number(stock.currentPrice ?? 0);
+      const quantity = Number(stock.quantity ?? 0);
+      const investment = Number(stock.investment != null ? stock.investment : (stock.averageBuyPrice != null ? stock.averageBuyPrice * quantity : 0));
+
+      const currentValue = currentPrice * quantity;
+      const profitLoss = currentValue - investment;
+
+      return {
+        ...stock,
+        currentPrice,
+        currentValue,
+        profitLoss
+      };
+    });
+  }, [portfolio, livePrices]);
+
+  // Recalculate portfolio-level totals from enriched holdings.
+  const liveTotals = useMemo(() => {
+    if (enrichedHoldings.length === 0) {
+      return {
+        totalInvestment: Number(portfolio?.totalInvestment ?? 0),
+        totalPortfolioValue: Number(portfolio?.totalPortfolioValue ?? 0),
+        totalProfitLoss: Number(portfolio?.totalProfitLoss ?? 0)
+      };
+    }
+
+    const totalInvestment = enrichedHoldings.reduce(
+      (sum, s) => sum + Number(s.investment ?? 0),
+      0
+    );
+    const totalPortfolioValue = enrichedHoldings.reduce(
+      (sum, s) => sum + Number(s.currentValue ?? 0),
+      0
+    );
+    const totalProfitLoss = totalPortfolioValue - totalInvestment;
+
+    return { totalInvestment, totalPortfolioValue, totalProfitLoss };
+  }, [enrichedHoldings, portfolio]);
+
+  // Live status indicator label.
+  const liveStatusLabel = useMemo(() => {
+    if (streamStatus === 'connecting') return 'ConnectingÃ¢â‚¬Â¦';
+    if (streamStatus === 'reconnecting') return 'ReconnectingÃ¢â‚¬Â¦';
+    if (streamStatus === 'error') return 'Market data unavailable';
+    if (streamStatus === 'connected') {
+      if (streamSession === 'closed') return 'Market closed';
+      if (liveDataSource === 'twelve_data_ws') return 'Live (Twelve Data WS)';
+      if (liveDataSource === 'rest_fallback') return 'Connected (REST Fallback)';
+      return 'Live';
+    }
+    return 'ConnectingÃ¢â‚¬Â¦';
+  }, [streamStatus, streamSession, liveDataSource]);
+
+  const liveStatusDot = useMemo(() => {
+    if (streamStatus === 'connecting') return 'connecting';
+    if (streamStatus === 'reconnecting') return 'reconnecting';
+    if (streamStatus === 'error') return 'error';
+    if (streamSession === 'closed') return 'closed';
+    return 'live';
+  }, [streamStatus, streamSession]);
+
   const summaryCards = useMemo(() => {
     const availableCash = Number(account?.availableCash ?? 0);
-    const investedAmount = Number(portfolio?.totalInvestment ?? account?.investedAmount ?? 0);
-    const portfolioValue = Number(portfolio?.totalPortfolioValue ?? account?.totalPortfolioValue ?? 0);
-    const totalProfitLoss = Number(portfolio?.totalProfitLoss ?? portfolioValue - investedAmount);
+    const { totalInvestment, totalPortfolioValue, totalProfitLoss } = liveTotals;
 
     return [
       {
         title: 'Total Investment',
-        value: formatCurrency(investedAmount),
+        value: formatCurrency(totalInvestment),
         tone: 'purple',
         subtitle: 'Capital deployed'
       },
       {
         title: 'Current Portfolio Value',
-        value: formatCurrency(portfolioValue),
+        value: formatCurrency(totalPortfolioValue),
         tone: 'green',
         subtitle: 'Current market value'
       },
@@ -148,9 +302,7 @@ const PortfolioPage = () => {
         subtitle: 'Ready to invest'
       }
     ];
-  }, [account, portfolio]);
-
-  const holdings = portfolio?.stocks || [];
+  }, [account, liveTotals]);
 
   const handleOpenTrade = (stock, mode) => {
     const normalizedStock = {
@@ -167,6 +319,18 @@ const PortfolioPage = () => {
 
   const closeTradeModal = () => setSelectedTrade(null);
 
+  const formatUpdatedTime = (date) => {
+    if (!date || Number.isNaN(new Date(date).getTime())) {
+      return '';
+    }
+    return new Date(date).toLocaleTimeString('en-IN', {
+      hour: 'numeric',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: true
+    });
+  };
+
   return (
     <div className="dashboard-app">
       <main className="dashboard-main">
@@ -175,6 +339,18 @@ const PortfolioPage = () => {
             <p className="eyebrow">Portfolio</p>
             <h1>My Portfolio</h1>
             <p className="subtitle">Monitor positions, cash balance, and trading activity.</p>
+          </div>
+          {/* Live status indicator */}
+          <div className="market-status-wrap" style={{ marginTop: '8px' }}>
+            <span className={`market-status-dot ${liveStatusDot}`} aria-hidden="true" />
+            <span className="market-status-text" aria-live="polite">
+              {liveStatusLabel}
+            </span>
+            {lastLiveUpdate ? (
+              <span className="market-updated">
+                Last updated: {formatUpdatedTime(lastLiveUpdate)}
+              </span>
+            ) : null}
           </div>
         </section>
 
@@ -199,7 +375,7 @@ const PortfolioPage = () => {
             <div className="inline-loading">Loading portfolio...</div>
           ) : error ? (
             <div className="inline-error">{error}</div>
-          ) : holdings.length === 0 ? (
+          ) : enrichedHoldings.length === 0 ? (
             <div className="empty-state">
               <p>No stocks in your portfolio yet.</p>
               <button type="button" className="primary-button inline-action-button" onClick={() => navigate('/dashboard')}>
@@ -223,7 +399,7 @@ const PortfolioPage = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {holdings.map((stock) => {
+                  {enrichedHoldings.map((stock) => {
                     const totalProfitLoss = Number(stock.profitLoss ?? 0);
                     const percentChange =
                       stock.averageBuyPrice && Number(stock.averageBuyPrice) > 0

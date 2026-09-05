@@ -10,7 +10,7 @@ import { subscribeToMarketSymbols } from '../services/marketStreamService';
 
 const formatCurrency = (value) => {
   if (value === null || value === undefined || Number.isNaN(Number(value))) {
-    return '₹0.00';
+    return 'â‚¹0.00';
   }
 
   return new Intl.NumberFormat('en-IN', {
@@ -22,7 +22,7 @@ const formatCurrency = (value) => {
 
 const formatSignedCurrency = (value) => {
   if (value === null || value === undefined || Number.isNaN(Number(value))) {
-    return '₹0.00';
+    return 'â‚¹0.00';
   }
 
   return `${value >= 0 ? '+' : '-'}${new Intl.NumberFormat('en-IN', {
@@ -93,6 +93,9 @@ const Watchlist = () => {
   const [streamSession, setStreamSession] = useState(null); // 'open' | 'closed' | null
   const [lastLiveUpdate, setLastLiveUpdate] = useState(null);
   const [streamIssue, setStreamIssue] = useState(false);
+  // Dominant data source for the watchlist: 'twelve_data_ws' if any
+  // symbol has live ticks, otherwise 'rest_fallback'.
+  const [liveDataSource, setLiveDataSource] = useState(null);
 
   // Stable key derived from the current watchlist symbol set. It only changes
   // when a symbol is added/removed, so live price updates never churn the SSE
@@ -159,6 +162,15 @@ const Watchlist = () => {
         const quotes = data?.quotes;
 
         if (quotes && typeof quotes === 'object') {
+          // Determine dominant source: 'twelve_data_ws' wins if any
+          // watchlist symbol has a live WS-derived price.
+          const wsSupported = currentSymbols.some(
+            (sym) => quotes[sym]?.source === 'twelve_data_ws'
+          );
+          setLiveDataSource(
+            wsSupported ? 'twelve_data_ws' : 'rest_fallback'
+          );
+
           setStocks((current) =>
             current.map((stock) => {
               const live = quotes[stock.symbol];
@@ -240,11 +252,11 @@ const Watchlist = () => {
   // Live-status indicator state for the watchlist header.
   const liveStatus = useMemo(() => {
     if (streamStatus === 'connecting') {
-      return { dot: 'connecting', label: 'Connecting…' };
+      return { dot: 'connecting', label: 'Connectingâ€¦' };
     }
 
     if (streamStatus === 'reconnecting') {
-      return { dot: 'reconnecting', label: 'Reconnecting…' };
+      return { dot: 'reconnecting', label: 'Reconnectingâ€¦' };
     }
 
     if (streamStatus === 'error') {
@@ -260,11 +272,19 @@ const Watchlist = () => {
         return { dot: 'connecting', label: 'Market data temporarily unavailable' };
       }
 
+      if (liveDataSource === 'twelve_data_ws') {
+        return { dot: 'live', label: 'Live (Twelve Data WS)' };
+      }
+
+      if (liveDataSource === 'rest_fallback') {
+        return { dot: 'live', label: 'Connected (REST Fallback)' };
+      }
+
       return { dot: 'live', label: 'Live' };
     }
 
-    return { dot: 'connecting', label: 'Connecting…' };
-  }, [streamStatus, streamSession, streamIssue]);
+    return { dot: 'connecting', label: 'Connectingâ€¦' };
+  }, [streamStatus, streamSession, streamIssue, liveDataSource]);
 
   return (
     <div className="dashboard-app">

@@ -19,6 +19,7 @@
     "express": "^5.2.1",
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^9.9.3",
+    "ws": "^8.21.3",
     "yahoo-finance2": "^4.0.2"
   },
   "devDependencies": {
