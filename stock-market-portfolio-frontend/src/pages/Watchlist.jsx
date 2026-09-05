@@ -10,7 +10,7 @@ import { subscribeToMarketSymbols } from '../services/marketStreamService';
 
 const formatCurrency = (value) => {
   if (value === null || value === undefined || Number.isNaN(Number(value))) {
-    return 'â‚¹0.00';
+    return '—';
   }
 
   return new Intl.NumberFormat('en-IN', {
@@ -22,7 +22,7 @@ const formatCurrency = (value) => {
 
 const formatSignedCurrency = (value) => {
   if (value === null || value === undefined || Number.isNaN(Number(value))) {
-    return 'â‚¹0.00';
+    return '—';
   }
 
   return `${value >= 0 ? '+' : '-'}${new Intl.NumberFormat('en-IN', {
@@ -34,7 +34,7 @@ const formatSignedCurrency = (value) => {
 
 const formatPercent = (value) => {
   if (value === null || value === undefined || Number.isNaN(Number(value))) {
-    return '0.00%';
+    return '—';
   }
 
   return `${Number(value).toFixed(2)}%`;
@@ -181,7 +181,8 @@ const Watchlist = () => {
                   ...stock,
                   currentPrice: live.price,
                   change: live.change ?? stock.change,
-                  percentChange: live.percentChange ?? stock.percentChange
+                  percentChange: live.percentChange ?? stock.percentChange,
+                  dataSource: live.source || stock.dataSource
                 };
               }
 
@@ -277,7 +278,7 @@ const Watchlist = () => {
       }
 
       if (liveDataSource === 'rest_fallback') {
-        return { dot: 'live', label: 'Connected (REST Fallback)' };
+        return { dot: 'delayed', label: 'Delayed (REST Fallback)' };
       }
 
       return { dot: 'live', label: 'Live' };
@@ -377,6 +378,7 @@ const Watchlist = () => {
                     <th>Current Price</th>
                     <th>Change</th>
                     <th>% Change</th>
+                    <th>Data status</th>
                     <th>Action</th>
                   </tr>
                 </thead>
@@ -407,6 +409,11 @@ const Watchlist = () => {
                           {stock.percentChange != null
                             ? `${isPositive ? '+' : ''}${formatPercent(stock.percentChange)}`
                             : 'N/A'}
+                        </td>
+                        <td>
+                          <span className={`quote-source-badge ${stock.dataSource === 'twelve_data_ws' ? 'live' : 'delayed'}`}>
+                            {stock.dataSource === 'twelve_data_ws' ? 'Live' : 'Delayed'}
+                          </span>
                         </td>
                         <td>
                           <button

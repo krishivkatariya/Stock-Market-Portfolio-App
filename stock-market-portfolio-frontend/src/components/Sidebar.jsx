@@ -56,6 +56,15 @@ const NotificationsIcon = () => (
   </svg>
 );
 
+const IPOIcon = () => (
+  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M4 19.5h16" />
+    <path d="M6 17V8l6-3 6 3v9" />
+    <path d="M9 17v-4h6v4" />
+    <path d="M8 9h8" />
+  </svg>
+);
+
 const LogoutIcon = () => (
   <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     <path d="M9 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h3" />
@@ -79,6 +88,7 @@ const NAV_ITEMS = [
   { label: 'Transactions', to: '/transactions', Icon: TransactionsIcon },
   { label: 'Account', to: '/account', Icon: AccountIcon },
   { label: 'Notifications', to: '/notifications', Icon: NotificationsIcon }
+  ,{ label: 'IPO centre', to: '/ipo', Icon: IPOIcon }
 ];
 
 const Sidebar = ({ isOpen, onNavigate, onLogout, user }) => {

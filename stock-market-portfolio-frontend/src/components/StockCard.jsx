@@ -6,7 +6,7 @@ const currencyFormatter = new Intl.NumberFormat('en-IN', {
   maximumFractionDigits: 2
 });
 
-const StockCard = ({ symbol, companyName, price, change, percentChange, isLive }) => {
+const StockCard = ({ symbol, companyName, price, change, percentChange, isLive, dataSource }) => {
   const numericChange = Number(change);
   const hasChange = change !== null && change !== undefined && !Number.isNaN(numericChange);
   const isPositive = hasChange && numericChange >= 0;
@@ -17,15 +17,15 @@ const StockCard = ({ symbol, companyName, price, change, percentChange, isLive }
     <Link to={`/stock/${encodeURIComponent(symbol)}`} className="stock-card">
       <span className="stock-card-top">
         <span className="stock-card-symbol">{symbol}</span>
-        {isLive ? (
-          <span className="live-badge" title="Live (Twelve Data WebSocket)">
-            LIVE
+        {isLive || dataSource ? (
+          <span className={`live-badge ${isLive ? '' : 'delayed-badge'}`} title={isLive ? 'Live (Twelve Data WebSocket)' : 'Delayed (REST fallback)'}>
+            {isLive ? 'LIVE' : 'DELAYED'}
           </span>
         ) : null}
       </span>
       <span className="stock-card-name">{companyName || symbol}</span>
       <span className="stock-card-price">
-        {hasPrice ? currencyFormatter.format(numericPrice) : 'N/A'}
+        {hasPrice ? currencyFormatter.format(numericPrice) : '—'}
       </span>
       {hasChange ? (
         <span className={`stock-card-change ${isPositive ? 'positive-text' : 'negative-text'}`}>

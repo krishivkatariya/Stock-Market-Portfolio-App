@@ -4,7 +4,7 @@ import api from '../api/api';
 
 const formatCurrency = (value) => {
   if (value === null || value === undefined || Number.isNaN(Number(value))) {
-    return '₹0.00';
+    return '—';
   }
 
   return new Intl.NumberFormat('en-IN', {
@@ -107,11 +107,11 @@ const TradeModal = ({
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="trade-modal" onClick={(event) => event.stopPropagation()}>
+      <div className="trade-modal" role="dialog" aria-modal="true" aria-labelledby="trade-dialog-title" onClick={(event) => event.stopPropagation()}>
         <div className="trade-modal-header">
           <div>
             <p className="trade-modal-kicker">{mode === 'buy' ? 'Buy stock' : 'Sell stock'}</p>
-            <h3>{stock.symbol}</h3>
+            <h3 id="trade-dialog-title">{stock.symbol}</h3>
           </div>
           <button type="button" className="close-modal-button" onClick={onClose} aria-label="Close trade dialog">
             ×
@@ -137,7 +137,16 @@ const TradeModal = ({
           </div>
         </div>
 
+        <div className="paper-trading-notice">
+          <strong>Paper trading</strong>
+          <span>Market order · Simulated execution</span>
+        </div>
+
         <form onSubmit={handleSubmit} className="trade-form">
+          <div className="trade-order-type">
+            <span>Order type</span>
+            <strong>Market order</strong>
+          </div>
           <div className="form-group trade-form-group">
             <label htmlFor="trade-quantity">Quantity</label>
             <input
@@ -149,11 +158,21 @@ const TradeModal = ({
               onChange={(event) => setQuantity(event.target.value)}
               placeholder="1"
             />
+            <small className="form-help">
+              {mode === 'buy'
+                ? `Maximum affordable: ${maxAffordableQuantity} shares`
+                : `Available to sell: ${ownedQuantity} shares`}
+            </small>
           </div>
 
           <div className="trade-total-row">
             <span>Total amount</span>
             <strong>{formatCurrency(totalAmount)}</strong>
+          </div>
+
+          <div className="trade-total-row trade-secondary-row">
+            <span>Charges</span>
+            <strong>—</strong>
           </div>
 
           {error ? <div className="inline-error">{error}</div> : null}

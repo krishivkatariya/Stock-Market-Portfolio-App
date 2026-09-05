@@ -133,162 +133,281 @@ const RANGE_OPTIONS = [
   { label: '5Y', value: '5Y' }
 ];
 
-// Lightweight, dependency-free SVG line chart of closing prices.
-const PriceChart = ({ data }) => {
+const calculateSma = (values, period) => values.map((value, index) => {
+  if (index < period - 1) return null;
+  const window = values.slice(index - period + 1, index + 1);
+  return window.reduce((sum, item) => sum + item, 0) / period;
+});
+
+const calculateEma = (values, period) => {
+  const multiplier = 2 / (period + 1);
+  let previous = null;
+  return values.map((value, index) => {
+    if (index < period - 1) return null;
+    if (previous === null) {
+      previous = values.slice(index - period + 1, index + 1)
+        .reduce((sum, item) => sum + item, 0) / period;
+      return previous;
+    }
+    previous = (value - previous) * multiplier + previous;
+    return previous;
+  });
+};
+
+const calculateRsi = (values, period = 14) => values.map((_, index) => {
+  if (index < period) return null;
+  let gains = 0;
+  let losses = 0;
+  for (let cursor = index - period + 1; cursor <= index; cursor += 1) {
+    const change = values[cursor] - values[cursor - 1];
+    if (change >= 0) gains += change;
+    else losses -= change;
+  }
+  if (losses === 0) return 100;
+  const relativeStrength = (gains / period) / (losses / period);
+  return 100 - (100 / (1 + relativeStrength));
+});
+
+const calculateBollinger = (values, period = 20) => values.map((_, index) => {
+  if (index < period - 1) return null;
+  const window = values.slice(index - period + 1, index + 1);
+  const mean = window.reduce((sum, value) => sum + value, 0) / period;
+  const deviation = Math.sqrt(window.reduce((sum, value) => sum + ((value - mean) ** 2), 0) / period);
+  return { middle: mean, upper: mean + deviation * 2, lower: mean - deviation * 2 };
+});
+
+const calculateVwap = (points) => {
+  let cumulativePriceVolume = 0;
+  let cumulativeVolume = 0;
+
+  return points.map((point) => {
+    const high = Number(point.high ?? point.close);
+    const low = Number(point.low ?? point.close);
+    const close = Number(point.close);
+    const volume = Number(point.volume);
+
+    if (!Number.isFinite(volume) || volume <= 0) return null;
+
+    cumulativePriceVolume += ((high + low + close) / 3) * volume;
+    cumulativeVolume += volume;
+    return cumulativePriceVolume / cumulativeVolume;
+  });
+};
+
+const calculateMacd = (values) => {
+  const fast = calculateEma(values, 12);
+  const slow = calculateEma(values, 26);
+  const macd = values.map((_, index) => (
+    fast[index] === null || slow[index] === null ? null : fast[index] - slow[index]
+  ));
+  const definedMacd = macd.filter((value) => value !== null);
+  const signalValues = calculateEma(definedMacd, 9);
+  const signal = macd.map((value, index) => {
+    if (value === null) return null;
+    const definedIndex = macd.slice(0, index + 1).filter((item) => item !== null).length - 1;
+    return signalValues[definedIndex] ?? null;
+  });
+  return { macd, signal };
+};
+
+const calculateAtr = (points, period = 10) => {
+  const trueRanges = points.map((point, index) => {
+    if (index === 0) return Number(point.high) - Number(point.low);
+    const high = Number(point.high);
+    const low = Number(point.low);
+    const previousClose = Number(points[index - 1].close);
+    return Math.max(high - low, Math.abs(high - previousClose), Math.abs(low - previousClose));
+  });
+
+  return trueRanges.map((_, index) => {
+    if (index < period - 1) return null;
+    return trueRanges.slice(index - period + 1, index + 1)
+      .reduce((sum, value) => sum + value, 0) / period;
+  });
+};
+
+const calculateSupertrend = (points, period = 10, multiplier = 3) => {
+  const atr = calculateAtr(points, period);
+  let finalUpper = null;
+  let finalLower = null;
+  let direction = 1;
+
+  return points.map((point, index) => {
+    if (atr[index] === null) return null;
+    const midpoint = (Number(point.high) + Number(point.low)) / 2;
+    const upper = midpoint + multiplier * atr[index];
+    const lower = midpoint - multiplier * atr[index];
+    finalUpper = finalUpper === null || upper < finalUpper || Number(points[index - 1]?.close) > finalUpper ? upper : finalUpper;
+    finalLower = finalLower === null || lower > finalLower || Number(points[index - 1]?.close) < finalLower ? lower : finalLower;
+    if (direction === 1 && Number(point.close) < finalLower) direction = -1;
+    if (direction === -1 && Number(point.close) > finalUpper) direction = 1;
+    return direction === 1 ? finalLower : finalUpper;
+  });
+};
+
+const PriceChart = ({ data, chartMode, indicators }) => {
   const [hoveredIndex, setHoveredIndex] = useState(null);
+  const [viewport, setViewport] = useState({ start: 0, end: Math.max(0, (data?.length || 1) - 1) });
+  const dragRef = useRef(null);
   const gradientId = `price-area-${useId().replace(/:/g, '')}`;
-  const points = data || [];
-  const width = 640;
-  const height = 280;
-  const padX = 14;
+  const points = (data || []).filter((point) => Number.isFinite(Number(point.close)));
+  const width = 900;
+  const height = 460;
+  const padX = 58;
   const padTop = 18;
-  const padBottom = 30;
-  const plotW = width - padX * 2;
-  const plotH = height - padTop - padBottom;
+  const plotW = width - padX - 16;
+  const priceH = 300;
+  const volumeTop = 338;
+  const volumeH = 74;
 
-  if (points.length === 0) {
-    return null;
-  }
+  if (points.length === 0) return null;
 
-  const closes = points.map((point) => Number(point.close));
-  const minClose = Math.min(...closes);
-  const maxClose = Math.max(...closes);
-  const rawRange = maxClose - minClose || 1;
-  const minPadded = minClose - rawRange * 0.08;
-  const maxPadded = maxClose + rawRange * 0.08;
-  const span = maxPadded - minPadded;
-
-  const toX = (index) =>
-    padX + (points.length === 1
-      ? plotW / 2
-      : (index / (points.length - 1)) * plotW);
-  const toY = (value) =>
-    padTop + (1 - (Number(value) - minPadded) / span) * plotH;
-
-  const linePoints = points
-    .map((point, index) => `${toX(index)},${toY(point.close)}`)
-    .join(' ');
-
-  const hoveredPoint = hoveredIndex === null ? null : points[hoveredIndex];
-
-  const firstClose = Number(points[0].close);
-  const lastClose = Number(points[points.length - 1].close);
-  const isUp = lastClose >= firstClose;
-  const lineColor = isUp ? '#16a34a' : '#dc2626';
-
-  const yDivisions = 4;
-  const gridLinesY = [];
-  for (let i = 0; i <= yDivisions; i += 1) {
-    const value = minPadded + (span * i) / yDivisions;
-    gridLinesY.push({
-      y: toY(value),
-      label: currencyFormatter.format(value).replace(/\.00$/, '')
+  const visibleStart = Math.max(0, Math.min(viewport.start, points.length - 1));
+  const visibleEnd = Math.max(visibleStart, Math.min(viewport.end, points.length - 1));
+  const visiblePoints = points.slice(visibleStart, visibleEnd + 1);
+  const values = visiblePoints.flatMap((point) => [Number(point.high), Number(point.low), Number(point.close)]);
+  const rawMin = Math.min(...values);
+  const rawMax = Math.max(...values);
+  const padding = (rawMax - rawMin || 1) * 0.08;
+  const minPrice = rawMin - padding;
+  const maxPrice = rawMax + padding;
+  const priceSpan = maxPrice - minPrice || 1;
+  const maxVolume = Math.max(...visiblePoints.map((point) => Number(point.volume) || 0), 1);
+  const closes = visiblePoints.map((point) => Number(point.close));
+  const sma = calculateSma(closes, 20);
+  const ema = calculateEma(closes, 20);
+  const bollinger = calculateBollinger(closes);
+  const rsi = calculateRsi(closes);
+  const vwap = calculateVwap(visiblePoints);
+  const macd = calculateMacd(closes);
+  const supertrend = calculateSupertrend(visiblePoints);
+  const pivotSource = visiblePoints.length > 1 ? visiblePoints[visiblePoints.length - 2] : null;
+  const pivotLevels = pivotSource ? {
+    pivot: (Number(pivotSource.high) + Number(pivotSource.low) + Number(pivotSource.close)) / 3,
+    resistance: (2 * ((Number(pivotSource.high) + Number(pivotSource.low) + Number(pivotSource.close)) / 3)) - Number(pivotSource.low),
+    support: (2 * ((Number(pivotSource.high) + Number(pivotSource.low) + Number(pivotSource.close)) / 3)) - Number(pivotSource.high)
+  } : null;
+  const toX = (index) => padX + (visiblePoints.length === 1 ? plotW / 2 : (index / (visiblePoints.length - 1)) * plotW);
+  const toPriceY = (value) => padTop + (1 - (Number(value) - minPrice) / priceSpan) * priceH;
+  const toVolumeY = (value) => volumeTop + volumeH - ((Number(value) || 0) / maxVolume) * volumeH;
+  const candleWidth = Math.max(2, Math.min(14, (plotW / visiblePoints.length) * 0.62));
+  const lineColor = Number(visiblePoints.at(-1).close) >= Number(visiblePoints[0].close) ? '#16a34a' : '#dc2626';
+  const hoveredPoint = hoveredIndex === null ? null : visiblePoints[hoveredIndex];
+  const yLines = Array.from({ length: 5 }, (_, index) => {
+    const value = minPrice + (priceSpan * index) / 4;
+    return { y: toPriceY(value), label: currencyFormatter.format(value).replace(/\.00$/, '') };
+  });
+  const drawIndicator = (valuesToDraw) => valuesToDraw.map((value, index) => value === null ? null : `${toX(index)},${toPriceY(value)}`).filter(Boolean).join(' ');
+  const zoom = (direction) => {
+    const currentSize = visibleEnd - visibleStart + 1;
+    const nextSize = Math.max(12, Math.min(points.length, Math.round(currentSize * direction)));
+    const center = Math.round((visibleStart + visibleEnd) / 2);
+    setViewport({
+      start: Math.max(0, center - Math.floor(nextSize / 2)),
+      end: Math.min(points.length - 1, center + Math.ceil(nextSize / 2) - 1)
     });
-  }
-
-  const labelIndexes = [0, Math.floor((points.length - 1) / 2), points.length - 1];
+  };
 
   return (
-    <svg
-      className="price-chart"
-      viewBox={`0 0 ${width} ${height}`}
-      preserveAspectRatio="xMidYMid meet"
-      role="img"
-      aria-label="Historical closing price chart"
-    >
-      <defs>
-        <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={lineColor} stopOpacity="0.25" />
-          <stop offset="100%" stopColor={lineColor} stopOpacity="0.02" />
-        </linearGradient>
-      </defs>
-
-      {gridLinesY.map((line) => (
-        <g key={`grid-${line.y}`}>
-          <line
-            x1={padX}
-            y1={line.y}
-            x2={width - padX}
-            y2={line.y}
-            className="chart-grid-line"
-          />
-          <text x={padX} y={line.y - 4} className="chart-y-label">
-            {line.label}
-          </text>
-        </g>
-      ))}
-
-      {points.length > 1 ? (
-        <polygon
-          points={`${padX},${padTop + plotH} ${linePoints} ${width - padX},${padTop + plotH}`}
-          fill={`url(#${gradientId})`}
-        />
-      ) : null}
-
-      <polyline
-        points={linePoints}
-        fill="none"
-        stroke={lineColor}
-        strokeWidth="2"
-        strokeLinejoin="round"
-        strokeLinecap="round"
-      />
-
-      {hoveredPoint ? (
-        <g className="chart-hover-state" pointerEvents="none">
-          <line
-            x1={toX(hoveredIndex)}
-            y1={padTop}
-            x2={toX(hoveredIndex)}
-            y2={padTop + plotH}
-            className="chart-crosshair"
-          />
-          <circle
-            cx={toX(hoveredIndex)}
-            cy={toY(hoveredPoint.close)}
-            r="4"
-            className="chart-hover-point"
-          />
-          <g transform={`translate(${Math.min(toX(hoveredIndex) + 8, width - 154)} ${Math.max(toY(hoveredPoint.close) - 44, 8)})`}>
-            <rect width="146" height="38" rx="4" className="chart-tooltip-bg" />
-            <text x="8" y="15" className="chart-tooltip-price">
-              {formatCurrency(hoveredPoint.close)}
-            </text>
-            <text x="8" y="29" className="chart-tooltip-date">
-              {formatChartTooltipDate(hoveredPoint.date)}
-            </text>
-          </g>
-        </g>
-      ) : null}
-
-      <rect
-        x={padX}
-        y={padTop}
-        width={plotW}
-        height={plotH}
-        fill="transparent"
-        onMouseLeave={() => setHoveredIndex(null)}
+    <div className="chart-workspace">
+      <div className="chart-toolbar" aria-label="Chart controls">
+        <span className="chart-hint">Scroll to zoom · drag to pan</span>
+        <button type="button" className="chart-control-button" onClick={() => zoom(0.7)} aria-label="Zoom in">+</button>
+        <button type="button" className="chart-control-button" onClick={() => zoom(1.4)} aria-label="Zoom out">−</button>
+        <button type="button" className="chart-control-button" onClick={() => setViewport({ start: 0, end: points.length - 1 })}>Reset</button>
+      </div>
+      <svg
+        className="price-chart advanced-price-chart"
+        viewBox={`0 0 ${width} ${height}`}
+        preserveAspectRatio="xMidYMid meet"
+        role="img"
+        aria-label={`${chartMode === 'candle' ? 'Candlestick' : 'Line'} chart with volume`}
+        onWheel={(event) => { event.preventDefault(); zoom(event.deltaY > 0 ? 1.2 : 0.8); }}
+        onMouseDown={(event) => { dragRef.current = { x: event.clientX, start: visibleStart, end: visibleEnd }; }}
         onMouseMove={(event) => {
           const bounds = event.currentTarget.getBoundingClientRect();
-          const relativeX = ((event.clientX - bounds.left) / bounds.width) * plotW;
-          const nextIndex = Math.round((relativeX / plotW) * (points.length - 1));
-          setHoveredIndex(Math.max(0, Math.min(points.length - 1, nextIndex)));
+          const relativeX = Math.max(0, Math.min(plotW, ((event.clientX - bounds.left) / bounds.width) * width - padX));
+          const nextIndex = Math.round((relativeX / plotW) * (visiblePoints.length - 1));
+          setHoveredIndex(Math.max(0, Math.min(visiblePoints.length - 1, nextIndex)));
+          if (dragRef.current) {
+            const delta = Math.round(((dragRef.current.x - event.clientX) / bounds.width) * points.length);
+            const size = dragRef.current.end - dragRef.current.start;
+            const start = Math.max(0, Math.min(points.length - 1 - size, dragRef.current.start + delta));
+            setViewport({ start, end: start + size });
+          }
         }}
-        aria-label="Hover to inspect historical prices"
-      />
-
-      {labelIndexes.map((index) => (
-        <text
-          key={`xlabel-${index}`}
-          x={toX(index)}
-          y={height - 8}
-          textAnchor={index === 0 ? 'start' : index === points.length - 1 ? 'end' : 'middle'}
-          className="chart-x-label"
-        >
-          {formatChartDate(points[index].date)}
-        </text>
-      ))}
-    </svg>
+        onMouseUp={() => { dragRef.current = null; }}
+        onMouseLeave={() => { setHoveredIndex(null); dragRef.current = null; }}
+      >
+        <defs>
+          <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={lineColor} stopOpacity="0.22" />
+            <stop offset="100%" stopColor={lineColor} stopOpacity="0.02" />
+          </linearGradient>
+        </defs>
+        {yLines.map((line) => (
+          <g key={`grid-${line.y}`}>
+            <line x1={padX} y1={line.y} x2={width - 16} y2={line.y} className="chart-grid-line" />
+            <text x={4} y={line.y + 4} className="chart-y-label">{line.label}</text>
+          </g>
+        ))}
+        <line x1={padX} y1={volumeTop - 10} x2={width - 16} y2={volumeTop - 10} className="chart-divider" />
+        <text x={padX} y={volumeTop + 12} className="chart-volume-label">VOLUME</text>
+        {visiblePoints.map((point, index) => {
+          const open = Number(point.open ?? point.close);
+          const high = Number(point.high ?? point.close);
+          const low = Number(point.low ?? point.close);
+          const close = Number(point.close);
+          const rising = close > open;
+          const falling = close < open;
+          const candleColor = rising ? '#16a34a' : falling ? '#dc2626' : '#64748b';
+          const bodyTop = toPriceY(Math.max(open, close));
+          const bodyHeight = Math.max(1, Math.abs(toPriceY(open) - toPriceY(close)));
+          return (
+            <g key={`${point.date}-${index}`}>
+              <rect x={toX(index) - candleWidth / 2} y={toVolumeY(point.volume)} width={candleWidth} height={volumeTop + volumeH - toVolumeY(point.volume)} fill={candleColor} opacity="0.35" />
+              {chartMode === 'candle' ? <>
+                <line x1={toX(index)} y1={toPriceY(high)} x2={toX(index)} y2={toPriceY(low)} stroke={candleColor} strokeWidth="1.5" />
+                <rect x={toX(index) - candleWidth / 2} y={bodyTop} width={candleWidth} height={bodyHeight} fill={candleColor} />
+              </> : null}
+            </g>
+          );
+        })}
+        {chartMode === 'line' ? <>
+          <polygon points={`${padX},${priceH + padTop} ${visiblePoints.map((point, index) => `${toX(index)},${toPriceY(point.close)}`).join(' ')} ${width - 16},${priceH + padTop}`} fill={`url(#${gradientId})`} />
+          <polyline points={visiblePoints.map((point, index) => `${toX(index)},${toPriceY(point.close)}`).join(' ')} fill="none" stroke={lineColor} strokeWidth="2.5" />
+        </> : null}
+        {indicators.sma ? <polyline points={drawIndicator(sma)} fill="none" className="chart-sma-line" /> : null}
+        {indicators.ema ? <polyline points={drawIndicator(ema)} fill="none" className="chart-ema-line" /> : null}
+        {indicators.bollinger ? <>
+          <polyline points={drawIndicator(bollinger.map((item) => item?.upper))} fill="none" className="chart-bollinger-line" />
+          <polyline points={drawIndicator(bollinger.map((item) => item?.lower))} fill="none" className="chart-bollinger-line" />
+        </> : null}
+        {indicators.vwap ? <polyline points={drawIndicator(vwap)} fill="none" className="chart-vwap-line" /> : null}
+        {indicators.supertrend ? <polyline points={drawIndicator(supertrend)} fill="none" className="chart-supertrend-line" /> : null}
+        {indicators.pivots && pivotLevels ? Object.entries(pivotLevels).map(([key, value]) => (
+          <line key={key} x1={padX} y1={toPriceY(value)} x2={width - 16} y2={toPriceY(value)} className={`chart-pivot-line pivot-${key}`} />
+        )) : null}
+        {hoveredPoint ? <g pointerEvents="none">
+          <line x1={toX(hoveredIndex)} y1={padTop} x2={toX(hoveredIndex)} y2={volumeTop + volumeH} className="chart-crosshair" />
+          <g transform={`translate(${Math.min(toX(hoveredIndex) + 8, width - 190)} ${Math.max(toPriceY(hoveredPoint.close) - 64, 4)})`}>
+            <rect width="182" height="58" rx="4" className="chart-tooltip-bg" />
+            <text x="8" y="14" className="chart-tooltip-date">{formatChartTooltipDate(hoveredPoint.date)}</text>
+            <text x="8" y="28" className="chart-tooltip-price">O {formatCurrency(hoveredPoint.open)} · H {formatCurrency(hoveredPoint.high)}</text>
+            <text x="8" y="42" className="chart-tooltip-price">L {formatCurrency(hoveredPoint.low)} · C {formatCurrency(hoveredPoint.close)}</text>
+            <text x="8" y="54" className="chart-tooltip-date">Volume {formatCompactNumber(hoveredPoint.volume)}</text>
+          </g>
+        </g> : null}
+        {[0, Math.floor((visiblePoints.length - 1) / 2), visiblePoints.length - 1].map((index) => (
+          <text key={`xlabel-${index}`} x={toX(index)} y={height - 8} textAnchor={index === 0 ? 'start' : index === visiblePoints.length - 1 ? 'end' : 'middle'} className="chart-x-label">{formatChartDate(visiblePoints[index].date)}</text>
+        ))}
+      </svg>
+      <div className="indicator-readout">
+        {indicators.rsi && rsi.some((value) => value !== null) ? <span>RSI(14): {rsi.at(-1)?.toFixed(1) ?? '—'}</span> : null}
+        {indicators.macd && macd.macd.some((value) => value !== null) ? <span>MACD: {macd.macd.at(-1)?.toFixed(2) ?? '—'} / Signal {macd.signal.at(-1)?.toFixed(2) ?? '—'}</span> : null}
+        {indicators.pivots && pivotLevels ? <span>Pivot: {formatCurrency(pivotLevels.pivot)}</span> : null}
+      </div>
+    </div>
   );
 };
 const StockDetails = () => {
@@ -301,6 +420,17 @@ const StockDetails = () => {
   const [error, setError] = useState('');
 
   const [range, setRange] = useState('1M');
+  const [chartMode, setChartMode] = useState('candle');
+  const [indicators, setIndicators] = useState({
+    sma: false,
+    ema: false,
+    rsi: false,
+    bollinger: false,
+    macd: false,
+    vwap: false,
+    supertrend: false,
+    pivots: false
+  });
   const [history, setHistory] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(true);
   const [historyError, setHistoryError] = useState('');
@@ -587,7 +717,7 @@ const StockDetails = () => {
       }
 
       if (livePriceSource === 'rest_fallback') {
-        return { dot: 'live', label: 'Connected (REST Fallback)' };
+        return { dot: 'delayed', label: 'Delayed (REST Fallback)' };
       }
 
       return { dot: 'live', label: 'Live' };
@@ -713,19 +843,57 @@ const StockDetails = () => {
             <section className="panel">
               <div className="panel-header">
                 <h2>Price History</h2>
-                <div className="chart-range-selector">
-                  {RANGE_OPTIONS.map((option) => (
-                    <button
-                      key={option.label}
-                      type="button"
-                      className={`range-button ${range === option.value ? 'active' : ''}`}
-                      onClick={() => handleRangeChange(option.value)}
-                      disabled={historyLoading}
-                    >
-                      {option.label}
-                    </button>
-                  ))}
+                <div className="chart-controls-stack">
+                  <div className="chart-range-selector" aria-label="Chart time range">
+                    {RANGE_OPTIONS.map((option) => (
+                      <button
+                        key={option.label}
+                        type="button"
+                        className={`range-button ${range === option.value ? 'active' : ''}`}
+                        onClick={() => handleRangeChange(option.value)}
+                        disabled={historyLoading}
+                        aria-pressed={range === option.value}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="chart-mode-selector" aria-label="Chart type">
+                    {['candle', 'line'].map((mode) => (
+                      <button
+                        key={mode}
+                        type="button"
+                        className={`chart-mode-button ${chartMode === mode ? 'active' : ''}`}
+                        onClick={() => setChartMode(mode)}
+                        aria-pressed={chartMode === mode}
+                      >
+                        {mode === 'candle' ? 'Candles' : 'Line'}
+                      </button>
+                    ))}
+                  </div>
                 </div>
+              </div>
+
+              <div className="indicator-selector" aria-label="Technical indicators">
+                {[
+                  ['sma', 'SMA 20'],
+                  ['ema', 'EMA 20'],
+                  ['bollinger', 'Bollinger'],
+                  ['rsi', 'RSI 14'],
+                  ['macd', 'MACD'],
+                  ['vwap', 'VWAP'],
+                  ['supertrend', 'Supertrend'],
+                  ['pivots', 'Pivot points']
+                ].map(([key, label]) => (
+                  <label key={key} className="indicator-toggle">
+                    <input
+                      type="checkbox"
+                      checked={indicators[key]}
+                      onChange={() => setIndicators((current) => ({ ...current, [key]: !current[key] }))}
+                    />
+                    <span>{label}</span>
+                  </label>
+                ))}
               </div>
 
               {historyLoading ? (
@@ -746,7 +914,7 @@ const StockDetails = () => {
                   No historical data available for this range.
                 </div>
               ) : (
-                <PriceChart data={history} />
+                <PriceChart data={history} chartMode={chartMode} indicators={indicators} />
               )}
             </section>
 
