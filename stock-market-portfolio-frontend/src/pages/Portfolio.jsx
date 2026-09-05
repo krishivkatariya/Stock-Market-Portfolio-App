@@ -57,6 +57,8 @@ const PortfolioPage = () => {
   const [error, setError] = useState('');
   const [selectedTrade, setSelectedTrade] = useState(null);
   const [tradeMode, setTradeMode] = useState('buy');
+  const [holdingsFilter, setHoldingsFilter] = useState('');
+  const [holdingsSort, setHoldingsSort] = useState('currentValue');
 
   // Live price overrides keyed by symbol.
   // When a WS/REST event arrives, the current market price is updated here
@@ -250,6 +252,27 @@ const PortfolioPage = () => {
     return { totalInvestment, totalPortfolioValue, totalProfitLoss };
   }, [enrichedHoldings, portfolio]);
 
+  const displayHoldings = useMemo(() => {
+    const query = holdingsFilter.trim().toLowerCase();
+    return [...enrichedHoldings]
+      .filter((stock) => !query || `${stock.symbol} ${stock.companyName || ''}`.toLowerCase().includes(query))
+      .sort((left, right) => {
+        if (holdingsSort === 'pnl') return Number(right.profitLoss || 0) - Number(left.profitLoss || 0);
+        if (holdingsSort === 'pnlPercent') {
+          const leftPercent = Number(left.averageBuyPrice) ? ((Number(left.currentPrice) - Number(left.averageBuyPrice)) / Number(left.averageBuyPrice)) * 100 : 0;
+          const rightPercent = Number(right.averageBuyPrice) ? ((Number(right.currentPrice) - Number(right.averageBuyPrice)) / Number(right.averageBuyPrice)) * 100 : 0;
+          return rightPercent - leftPercent;
+        }
+        if (holdingsSort === 'investment') return Number(right.investment || 0) - Number(left.investment || 0);
+        if (holdingsSort === 'quantity') return Number(right.quantity || 0) - Number(left.quantity || 0);
+        return Number(right.currentValue || 0) - Number(left.currentValue || 0);
+      });
+  }, [enrichedHoldings, holdingsFilter, holdingsSort]);
+
+  const totalProfitPercent = liveTotals.totalInvestment > 0
+    ? (liveTotals.totalProfitLoss / liveTotals.totalInvestment) * 100
+    : null;
+
   // Live status indicator label.
   const liveStatusLabel = useMemo(() => {
     if (streamStatus === 'connecting') return 'ConnectingÃ¢â‚¬Â¦';
@@ -296,13 +319,25 @@ const PortfolioPage = () => {
         subtitle: totalProfitLoss >= 0 ? 'Gains' : 'Drawdown'
       },
       {
+        title: 'P&L Percentage',
+        value: totalProfitPercent === null ? '—' : formatPercent(totalProfitPercent),
+        tone: totalProfitPercent === null || totalProfitPercent >= 0 ? 'positive' : 'negative',
+        subtitle: 'Since invested'
+      },
+      {
+        title: "Today's P&L",
+        value: '—',
+        tone: 'neutral',
+        subtitle: 'Provider data unavailable'
+      },
+      {
         title: 'Available Cash',
         value: formatCurrency(availableCash),
         tone: 'blue',
         subtitle: 'Ready to invest'
       }
     ];
-  }, [account, liveTotals]);
+  }, [account, liveTotals, totalProfitPercent]);
 
   const handleOpenTrade = (stock, mode) => {
     const normalizedStock = {
@@ -369,6 +404,22 @@ const PortfolioPage = () => {
         <section className="panel">
           <div className="panel-header">
             <h2>Holdings</h2>
+            <div className="holdings-tools">
+              <input
+                type="search"
+                value={holdingsFilter}
+                onChange={(event) => setHoldingsFilter(event.target.value)}
+                placeholder="Filter holdings"
+                aria-label="Filter holdings"
+              />
+              <select value={holdingsSort} onChange={(event) => setHoldingsSort(event.target.value)} aria-label="Sort holdings">
+                <option value="currentValue">Sort: Current value</option>
+                <option value="investment">Sort: Invested value</option>
+                <option value="pnl">Sort: P&amp;L</option>
+                <option value="pnlPercent">Sort: P&amp;L %</option>
+                <option value="quantity">Sort: Quantity</option>
+              </select>
+            </div>
           </div>
 
           {loading || accountLoading ? (
@@ -382,6 +433,8 @@ const PortfolioPage = () => {
                 Explore Stocks
               </button>
             </div>
+          ) : displayHoldings.length === 0 ? (
+            <div className="empty-notes">No holdings match this filter.</div>
           ) : (
             <div className="table-wrapper">
               <table className="portfolio-table">
@@ -399,7 +452,7 @@ const PortfolioPage = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {enrichedHoldings.map((stock) => {
+                  {displayHoldings.map((stock) => {
                     const totalProfitLoss = Number(stock.profitLoss ?? 0);
                     const percentChange =
                       stock.averageBuyPrice && Number(stock.averageBuyPrice) > 0

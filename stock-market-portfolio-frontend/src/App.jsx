@@ -14,6 +14,7 @@ import Account from './pages/Account';
 import Orders from './pages/Orders';
 import Notifications from './pages/Notifications';
 import StockDetails from './pages/StockDetails';
+import IPO from './pages/IPO';
 import ProtectedRoute from './components/ProtectedRoute';
 import Layout from './components/Layout';
 
@@ -74,6 +75,11 @@ function App() {
           <Route
             path="/notifications"
             element={<Notifications />}
+          />
+
+          <Route
+            path="/ipo"
+            element={<IPO />}
           />
 
           <Route

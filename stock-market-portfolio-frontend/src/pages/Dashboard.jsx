@@ -821,7 +821,7 @@ const Dashboard = () => {
     if (marketStreamStatus === 'connected') {
       if (marketSession === 'closed') return 'Market closed';
       if (marketDataSource === 'twelve_data_ws') return 'Live (Twelve Data WS)';
-      if (marketDataSource === 'rest_fallback') return 'Connected (REST Fallback)';
+      if (marketDataSource === 'rest_fallback') return 'Delayed (REST Fallback)';
       return 'Live';
     }
     return 'Connecting…';
@@ -1010,6 +1010,7 @@ const Dashboard = () => {
                   change={stock.change}
                   percentChange={stock.percentChange}
                   isLive={stock.isLive}
+                  dataSource={stock.source}
                 />
               ))}
             </div>
