@@ -92,6 +92,7 @@ const state = {
   pollTimer: null,
   heartbeatTimer: null,
   pollInFlight: false,
+  pollQueued: false,
   lastPollAt: null,
   lastError: null,
   quotes: new Map(),           // symbol -> normalized snapshot
@@ -296,6 +297,10 @@ const subscribeWsSymbols = () => {
 
 const poll = async () => {
   if (state.pollInFlight) {
+    // A poll is already running. Queue one more pass so symbols subscribed
+    // mid-flight (e.g. a new SSE client connecting during startup) are
+    // fetched immediately instead of waiting for the next scheduled interval.
+    state.pollQueued = true;
     return;
   }
   state.pollInFlight = true;
@@ -359,6 +364,12 @@ const poll = async () => {
     broadcast('error');
   } finally {
     state.pollInFlight = false;
+
+    if (state.pollQueued) {
+      state.pollQueued = false;
+      // Next tick so the queued pass runs after this frame fully unwinds.
+      setTimeout(poll, 0);
+    }
   }
 };
 

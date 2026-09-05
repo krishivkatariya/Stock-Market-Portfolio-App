@@ -11,6 +11,7 @@ import { getOrders } from '../services/orderService';
 import { getRecentStocks } from '../utils/recentStocks';
 import {
   subscribeToMarket,
+  subscribeToMarketSymbols,
   fetchMarketSnapshot
 } from '../services/marketStreamService';
 
@@ -41,8 +42,20 @@ const SEARCH_RESULTS_LIMIT = 8;
 const PREVIEW_LIMIT = 5;
 
 // Curated large-cap symbols for Discover / Top movers.
-// Every price shown comes from the existing quote endpoint - nothing is fabricated.
-const DISCOVERY_SYMBOLS = ['RELIANCE', 'TCS', 'HDFCBANK', 'INFY', 'ICICIBANK', 'SBIN'];
+// NSE equities MUST use the Yahoo ".NS" suffix - bare symbols (e.g. RELIANCE)
+// fail Yahoo's quote schema and return no price data at all. These symbols are
+// also fed to the shared market stream; on the current Twelve Data plan NSE
+// names are served by the honest REST fallback, US symbols stream live via WS.
+// Every price shown comes from the existing quote endpoints / shared stream -
+// nothing is fabricated.
+const DISCOVERY_SYMBOLS = [
+  'RELIANCE.NS',
+  'TCS.NS',
+  'HDFCBANK.NS',
+  'INFY.NS',
+  'ICICIBANK.NS',
+  'SBIN.NS'
+];
 
 const MARKET_INDEXES = [
   { symbol: '^NSEI', label: 'NIFTY 50' },
@@ -78,6 +91,68 @@ const formatPercent = (value) => {
   }
   return `${numeric >= 0 ? '+' : ''}${numeric.toFixed(2)}%`;
 };
+
+const compactNumberFormatter = new Intl.NumberFormat('en-IN', {
+  notation: 'compact',
+  maximumFractionDigits: 2
+});
+
+// Compact Indian-format volume (e.g. 1.3Cr) - matches StockDetails formatting.
+const formatCompactNumber = (value) => {
+  const numeric = Number(value);
+  if (value === null || value === undefined || Number.isNaN(numeric)) {
+    return '--';
+  }
+  return compactNumberFormatter.format(numeric);
+};
+
+// Merge live stream quotes over REST-loaded rows. The stream carries
+// price/change/percentChange/source only, so company names and genuine
+// volume from the one-time REST load are preserved untouched.
+const overlayLiveQuotes = (rows, live) =>
+  (rows || []).map((stock) => {
+    const liveQuote = live[stock?.symbol];
+
+    if (!liveQuote) {
+      return stock;
+    }
+
+    return {
+      ...stock,
+      currentPrice: liveQuote.price,
+      change: liveQuote.change ?? stock.change ?? null,
+      percentChange: liveQuote.percentChange ?? stock.percentChange ?? null,
+      source: liveQuote.source || stock.source,
+      isLive: Boolean(liveQuote.isLive)
+    };
+  });
+
+// Rich mover row shared by Top Gainers / Top Losers / Most Active.
+const MoverRow = ({ stock, showVolume = false }) => (
+  <Link to={`/stock/${encodeURIComponent(stock.symbol)}`} className="mover-row mover-row-rich">
+    <span className="mover-main">
+      <span className="mover-symbol">
+        {stock.symbol}
+        {stock.isLive ? (
+          <span className="live-dot" title="Live (Twelve Data WebSocket)" />
+        ) : null}
+      </span>
+      {stock.companyName && stock.companyName !== stock.symbol ? (
+        <span className="mover-name">{stock.companyName}</span>
+      ) : null}
+    </span>
+    <span className="mover-price">{formatCurrency(stock.currentPrice)}</span>
+    <span className="mover-change">{formatSignedCurrency(stock.change)}</span>
+    <span className={Number(stock.percentChange) >= 0 ? 'positive-text' : 'negative-text'}>
+      {formatPercent(stock.percentChange)}
+    </span>
+    {showVolume ? (
+      <span className="mover-volume" title="Traded volume">
+        {formatCompactNumber(stock.volume)}
+      </span>
+    ) : null}
+  </Link>
+);
 
 const formatDate = (value) => {
   if (!value) {
@@ -147,6 +222,12 @@ const Dashboard = () => {
   const [discoveryLoading, setDiscoveryLoading] = useState(true);
   const [discoveryError, setDiscoveryError] = useState('');
   const [discoveryKey, setDiscoveryKey] = useState(0);
+
+  // Latest quotes pushed by the ONE shared backend stream for the symbols this
+  // page needs (discovery + watchlist). Merged over the REST-loaded rows so a
+  // genuine live tick updates cards/movers automatically - no refetch, no
+  // per-component polling loop.
+  const [liveQuotes, setLiveQuotes] = useState({});
 
   const [watchlistStocks, setWatchlistStocks] = useState([]);
   const [watchlistLoading, setWatchlistLoading] = useState(true);
@@ -516,11 +597,90 @@ const Dashboard = () => {
     return () => document.removeEventListener('mousedown', handlePointerDown);
   }, [searchOpen]);
 
+  // ---- Shared market stream: one SSE for every symbol this page shows ----
+  // Discovery + watchlist symbols are unioned into the existing EventSource
+  // (marketStreamService ref-counts subscribers; the backend de-duplicates
+  // symbols into its ONE poll loop). No extra polling loop or socket is created.
+  const liveSymbolsKey = useMemo(() => {
+    const symbols = new Set(
+      discoverySymbols.map((symbol) => String(symbol).trim().toUpperCase())
+    );
+
+    watchlistStocks.forEach((stock) => {
+      if (stock?.symbol) {
+        symbols.add(String(stock.symbol).trim().toUpperCase());
+      }
+    });
+
+    return [...symbols].join(',');
+  }, [discoverySymbols, watchlistStocks]);
+
+  useEffect(() => {
+    if (!liveSymbolsKey) {
+      return undefined;
+    }
+
+    const wanted = liveSymbolsKey.split(',');
+
+    const unsubscribe = subscribeToMarketSymbols(wanted, {
+      onMessage: (data) => {
+        const quotes = data?.quotes;
+
+        if (!quotes || typeof quotes !== 'object') {
+          return;
+        }
+
+        setLiveQuotes((current) => {
+          const next = { ...current };
+          let changed = false;
+
+          wanted.forEach((symbol) => {
+            const quote = quotes[symbol];
+            // Stream quotes use `price`; REST-loaded rows use `currentPrice`.
+            const price = Number(quote?.price);
+
+            // Never overwrite genuine REST data with the stream's empty
+            // `price: null` placeholders sent before the first backend poll.
+            if (!quote || !Number.isFinite(price)) {
+              return;
+            }
+
+            const change = Number(quote.change);
+            const percentChange = Number(quote.percentChange);
+
+            next[symbol] = {
+              price,
+              change: Number.isFinite(change) ? change : null,
+              percentChange: Number.isFinite(percentChange) ? percentChange : null,
+              source: quote.source || null,
+              isLive: Boolean(quote.isLive)
+            };
+            changed = true;
+          });
+
+          return changed ? next : current;
+        });
+      }
+    });
+
+    return unsubscribe;
+  }, [liveSymbolsKey]);
+
+  const liveDiscoveryCards = useMemo(
+    () => overlayLiveQuotes(discoveryCards, liveQuotes),
+    [discoveryCards, liveQuotes]
+  );
+
+  const liveWatchlistStocks = useMemo(
+    () => overlayLiveQuotes(watchlistStocks, liveQuotes),
+    [watchlistStocks, liveQuotes]
+  );
+
   // ---- Top movers: derived only from real quote data already loaded ----
   const quoteCandidates = useMemo(() => {
     const bySymbol = new Map();
 
-    [...discoveryCards, ...watchlistStocks].forEach((stock) => {
+    [...liveDiscoveryCards, ...liveWatchlistStocks].forEach((stock) => {
       const percentChange = Number(stock?.percentChange);
 
       if (stock?.symbol && !Number.isNaN(percentChange)) {
@@ -529,14 +689,14 @@ const Dashboard = () => {
     });
 
     return Array.from(bySymbol.values());
-  }, [discoveryCards, watchlistStocks]);
+  }, [liveDiscoveryCards, liveWatchlistStocks]);
 
   const topGainers = useMemo(
     () =>
       quoteCandidates
         .filter((stock) => Number(stock.percentChange) > 0)
         .sort((a, b) => Number(b.percentChange) - Number(a.percentChange))
-        .slice(0, 3),
+        .slice(0, 5),
     [quoteCandidates]
   );
 
@@ -545,9 +705,34 @@ const Dashboard = () => {
       quoteCandidates
         .filter((stock) => Number(stock.percentChange) < 0)
         .sort((a, b) => Number(a.percentChange) - Number(b.percentChange))
-        .slice(0, 3),
+        .slice(0, 5),
     [quoteCandidates]
   );
+
+  // ---- Most active: ranked by genuine traded volume only ----
+  // The stream does not carry volume, so ranking uses the volume returned by
+  // the existing /stocks/:symbol quote load. No volume value is ever invented;
+  // if the provider returns none, the section shows a clean unavailable state.
+  const mostActive = useMemo(() => {
+    const bySymbol = new Map();
+
+    [...liveDiscoveryCards, ...liveWatchlistStocks].forEach((stock) => {
+      const volume = Number(stock?.volume);
+
+      if (
+        stock?.symbol &&
+        Number.isFinite(volume) &&
+        volume > 0 &&
+        !bySymbol.has(stock.symbol)
+      ) {
+        bySymbol.set(stock.symbol, stock);
+      }
+    });
+
+    return [...bySymbol.values()]
+      .sort((a, b) => Number(b.volume) - Number(a.volume))
+      .slice(0, 5);
+  }, [liveDiscoveryCards, liveWatchlistStocks]);
 
   // ---- Search interaction ----
   const selectSearchResult = (result) => {
@@ -747,6 +932,7 @@ const Dashboard = () => {
         <section className="dashboard-section">
           <div className="section-header">
             <h2>Discover Stocks</h2>
+            <span className="cell-muted">Live via the shared market stream</span>
           </div>
 
           <div className="dashboard-search" ref={searchRef}>
@@ -811,15 +997,20 @@ const Dashboard = () => {
             </div>
           ) : discoveryError ? (
             <p className="empty-note">{discoveryError}</p>
-          ) : discoveryCards.length === 0 ? (
+          ) : liveDiscoveryCards.length === 0 ? (
             <p className="empty-note">No stock data available right now.</p>
           ) : (
             <div className="stock-cards-grid">
-              {discoveryCards.map((stock) => (
+              {liveDiscoveryCards.map((stock) => (
                 <StockCard
                   key={stock.symbol}
-                  stock={stock}
-                  onClick={() => navigate(`/stock/${encodeURIComponent(stock.symbol)}`)} />
+                  symbol={stock.symbol}
+                  companyName={stock.companyName}
+                  price={stock.currentPrice}
+                  change={stock.change}
+                  percentChange={stock.percentChange}
+                  isLive={stock.isLive}
+                />
               ))}
             </div>
           )}
@@ -829,37 +1020,57 @@ const Dashboard = () => {
         <section className="dashboard-section">
           <div className="section-header">
             <h2>Top Movers</h2>
-            <span className="cell-muted">From your watchlist &amp; discovered stocks</span>
+            <span className="cell-muted">From your watchlist &amp; discovered stocks · live via the shared stream</span>
           </div>
 
           <div className="movers-grid">
             <div className="mover-list">
+              <p className="mover-list-title positive-text">Top Gainers</p>
               {topGainers.length > 0 ? (
                 topGainers.map((stock) => (
-                  <Link to={`/stock/${encodeURIComponent(stock.symbol)}`} className="mover-row" key={`g-${stock.symbol}`}>
-                    <span className="mover-symbol">{stock.symbol}</span>
-                    <span className="mover-price">{formatCurrency(stock.currentPrice)}</span>
-                    <span className="positive-text">{formatPercent(stock.percentChange)}</span>
-                  </Link>
+                  <MoverRow key={`g-${stock.symbol}`} stock={stock} />
                 ))
               ) : (
                 <p className="search-status">No gainers at the moment</p>
               )}
             </div>
             <div className="mover-list">
+              <p className="mover-list-title negative-text">Top Losers</p>
               {topLosers.length > 0 ? (
                 topLosers.map((stock) => (
-                  <Link to={`/stock/${encodeURIComponent(stock.symbol)}`} className="mover-row" key={`l-${stock.symbol}`}>
-                    <span className="mover-symbol">{stock.symbol}</span>
-                    <span className="mover-price">{formatCurrency(stock.currentPrice)}</span>
-                    <span className="negative-text">{formatPercent(stock.percentChange)}</span>
-                  </Link>
+                  <MoverRow key={`l-${stock.symbol}`} stock={stock} />
                 ))
               ) : (
                 <p className="search-status">No losers at the moment</p>
               )}
             </div>
           </div>
+        </section>
+
+        {/* ---- Most active ---- */}
+        <section className="dashboard-section">
+          <div className="section-header">
+            <h2>Most Active</h2>
+            <span className="cell-muted">Ranked by genuine traded volume</span>
+          </div>
+
+          {discoveryLoading ? (
+            <div className="mover-list">
+              {Array.from({ length: 5 }).map((_, index) => (
+                <div className="mover-row mover-row-rich" key={`ma-skel-${index}`}>
+                  <span className="skeleton skeleton-line medium" />
+                </div>
+              ))}
+            </div>
+          ) : mostActive.length > 0 ? (
+            <div className="mover-list">
+              {mostActive.map((stock) => (
+                <MoverRow key={`ma-${stock.symbol}`} stock={stock} showVolume />
+              ))}
+            </div>
+          ) : (
+            <p className="empty-note">Traded volume is unavailable right now.</p>
+          )}
         </section>
 
 
