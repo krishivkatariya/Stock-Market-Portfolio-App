@@ -1236,6 +1236,7 @@
 }
 
 .range-button {
+  cursor: pointer;
   padding: 6px 14px;
   border: none;
   border-radius: 8px;
@@ -1244,6 +1245,16 @@
   font-size: 0.82rem;
   font-weight: 650;
   transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.range-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.range-button:disabled {
+  cursor: wait;
+  opacity: 0.6;
 }
 
 .range-button:hover {
@@ -1270,6 +1281,56 @@
 .chart-x-label {
   fill: var(--text-muted);
   font-size: 11px;
+}
+
+.chart-crosshair {
+  stroke: var(--text-muted);
+  stroke-dasharray: 3 3;
+  stroke-width: 1;
+}
+
+.chart-hover-point {
+  fill: var(--surface);
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+
+.chart-tooltip-bg {
+  fill: var(--surface);
+  stroke: var(--border);
+  stroke-width: 1;
+}
+
+.chart-tooltip-price,
+.chart-tooltip-date {
+  fill: var(--text-primary);
+  font-size: 11px;
+}
+
+.chart-tooltip-price {
+  font-weight: 700;
+}
+
+.chart-tooltip-date {
+  fill: var(--text-muted);
+}
+
+@media (max-width: 640px) {
+  .panel-header {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .chart-range-selector {
+    max-width: 100%;
+    overflow-x: auto;
+  }
+
+  .range-button {
+    flex: 0 0 auto;
+    padding-inline: 11px;
+  }
 }
 
 /* ==========================================================

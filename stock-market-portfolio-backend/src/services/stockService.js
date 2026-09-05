@@ -60,6 +60,31 @@ const getHistoricalData = async (
 
   let historicalData;
 
+  const chartResult = async () => {
+    const result = await yahooFinance.chart(
+      yahooSymbol,
+      {
+        period1,
+        period2,
+        interval
+      }
+    );
+
+    return (result?.quotes || []).filter(
+      (row) =>
+        row &&
+        row.date &&
+        row.close !== null &&
+        row.close !== undefined
+    );
+  };
+
+  // yahooFinance.historical only accepts daily/weekly/monthly intervals in
+  // v4. Use chart directly for intraday ranges such as 1D and 1W.
+  if (!['1d', '1wk', '1mo'].includes(interval)) {
+    return chartResult();
+  }
+
   try {
     historicalData = await yahooFinance.historical(
       yahooSymbol,
@@ -83,22 +108,7 @@ const getHistoricalData = async (
       throw error;
     }
 
-    const chartResult = await yahooFinance.chart(
-      yahooSymbol,
-      {
-        period1,
-        period2,
-        interval
-      }
-    );
-
-    historicalData = (chartResult?.quotes || []).filter(
-      (row) =>
-        row &&
-        row.date &&
-        row.close !== null &&
-        row.close !== undefined
-    );
+    historicalData = await chartResult();
   }
 
   return historicalData;

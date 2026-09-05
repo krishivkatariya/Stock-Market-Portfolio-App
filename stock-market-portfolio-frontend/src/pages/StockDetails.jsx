@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useMemo, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 
 import api from '../api/api';
@@ -25,7 +25,7 @@ const compactNumberFormatter = new Intl.NumberFormat('en-IN', {
 
 const formatCurrency = (value) => {
   if (value === null || value === undefined || Number.isNaN(Number(value))) {
-    return '₹0.00';
+    return '—';
   }
 
   return currencyFormatter.format(Number(value));
@@ -33,7 +33,7 @@ const formatCurrency = (value) => {
 
 const formatSignedCurrency = (value) => {
   if (value === null || value === undefined || Number.isNaN(Number(value))) {
-    return '₹0.00';
+    return '—';
   }
 
   return `${value >= 0 ? '+' : '-'}${currencyFormatter.format(Math.abs(Number(value)))}`;
@@ -41,7 +41,7 @@ const formatSignedCurrency = (value) => {
 
 const formatPercent = (value) => {
   if (value === null || value === undefined || Number.isNaN(Number(value))) {
-    return '0.00%';
+    return '—';
   }
 
   return `${Number(value).toFixed(2)}%`;
@@ -49,7 +49,7 @@ const formatPercent = (value) => {
 
 const formatCompactNumber = (value) => {
   if (value === null || value === undefined || Number.isNaN(Number(value))) {
-    return '0';
+    return '—';
   }
 
   return compactNumberFormatter.format(Number(value));
@@ -70,6 +70,19 @@ const formatChartDate = (value) => {
     day: '2-digit',
     month: 'short'
   }).format(date);
+};
+
+const formatChartTooltipDate = (value) => {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return 'Date unavailable';
+  }
+
+  return date.toLocaleString('en-IN', {
+    dateStyle: 'medium',
+    timeStyle: 'short'
+  });
 };
 
 const formatUpdatedTime = (value) => {
@@ -111,15 +124,18 @@ const friendlyErrorMessage = (error) => {
 };
 
 const RANGE_OPTIONS = [
-  { label: '7D', value: 7 },
-  { label: '30D', value: 30 },
-  { label: '90D', value: 90 },
-  { label: '6M', value: 180 },
-  { label: '1Y', value: 365 }
+  { label: '1D', value: '1D' },
+  { label: '1W', value: '1W' },
+  { label: '1M', value: '1M' },
+  { label: '3M', value: '3M' },
+  { label: '6M', value: '6M' },
+  { label: '1Y', value: '1Y' },
+  { label: '5Y', value: '5Y' }
 ];
 
 // Lightweight, dependency-free SVG line chart of closing prices.
 const PriceChart = ({ data }) => {
+  const [hoveredIndex, setHoveredIndex] = useState(null);
   const gradientId = `price-area-${useId().replace(/:/g, '')}`;
   const points = data || [];
   const width = 640;
@@ -152,6 +168,8 @@ const PriceChart = ({ data }) => {
   const linePoints = points
     .map((point, index) => `${toX(index)},${toY(point.close)}`)
     .join(' ');
+
+  const hoveredPoint = hoveredIndex === null ? null : points[hoveredIndex];
 
   const firstClose = Number(points[0].close);
   const lastClose = Number(points[points.length - 1].close);
@@ -216,6 +234,49 @@ const PriceChart = ({ data }) => {
         strokeLinecap="round"
       />
 
+      {hoveredPoint ? (
+        <g className="chart-hover-state" pointerEvents="none">
+          <line
+            x1={toX(hoveredIndex)}
+            y1={padTop}
+            x2={toX(hoveredIndex)}
+            y2={padTop + plotH}
+            className="chart-crosshair"
+          />
+          <circle
+            cx={toX(hoveredIndex)}
+            cy={toY(hoveredPoint.close)}
+            r="4"
+            className="chart-hover-point"
+          />
+          <g transform={`translate(${Math.min(toX(hoveredIndex) + 8, width - 154)} ${Math.max(toY(hoveredPoint.close) - 44, 8)})`}>
+            <rect width="146" height="38" rx="4" className="chart-tooltip-bg" />
+            <text x="8" y="15" className="chart-tooltip-price">
+              {formatCurrency(hoveredPoint.close)}
+            </text>
+            <text x="8" y="29" className="chart-tooltip-date">
+              {formatChartTooltipDate(hoveredPoint.date)}
+            </text>
+          </g>
+        </g>
+      ) : null}
+
+      <rect
+        x={padX}
+        y={padTop}
+        width={plotW}
+        height={plotH}
+        fill="transparent"
+        onMouseLeave={() => setHoveredIndex(null)}
+        onMouseMove={(event) => {
+          const bounds = event.currentTarget.getBoundingClientRect();
+          const relativeX = ((event.clientX - bounds.left) / bounds.width) * plotW;
+          const nextIndex = Math.round((relativeX / plotW) * (points.length - 1));
+          setHoveredIndex(Math.max(0, Math.min(points.length - 1, nextIndex)));
+        }}
+        aria-label="Hover to inspect historical prices"
+      />
+
       {labelIndexes.map((index) => (
         <text
           key={`xlabel-${index}`}
@@ -239,7 +300,7 @@ const StockDetails = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  const [range, setRange] = useState(30);
+  const [range, setRange] = useState('1M');
   const [history, setHistory] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(true);
   const [historyError, setHistoryError] = useState('');
@@ -262,6 +323,8 @@ const StockDetails = () => {
   // Tracks whether the live price for this symbol came via Twelve Data WS
   // or REST fallback, so the status label can distinguish them.
   const [livePriceSource, setLivePriceSource] = useState(null);
+  const historyCache = useRef(new Map());
+  const historyRequestId = useRef(0);
 
   const fetchQuoteData = useCallback(async () => {
     try {
@@ -371,11 +434,31 @@ const StockDetails = () => {
   }, [symbol]);
 
   const fetchHistory = useCallback(async () => {
+    const requestId = historyRequestId.current + 1;
+    historyRequestId.current = requestId;
+    const cacheKey = `${String(symbol).toUpperCase()}:${range}`;
+    const cachedHistory = historyCache.current.get(cacheKey);
+
+    if (cachedHistory) {
+      setHistory(cachedHistory);
+      setHistoryLoading(false);
+      setHistoryError('');
+      return;
+    }
+
     try {
       const data = await getStockHistory(symbol, range);
-      setHistory(data?.history || []);
+      if (requestId !== historyRequestId.current) {
+        return;
+      }
+      const nextHistory = data?.history || [];
+      historyCache.current.set(cacheKey, nextHistory);
+      setHistory(nextHistory);
       setHistoryError('');
     } catch (fetchError) {
+      if (requestId !== historyRequestId.current) {
+        return;
+      }
       if (fetchError?.response?.status === 401) {
         logout();
         navigate('/login');

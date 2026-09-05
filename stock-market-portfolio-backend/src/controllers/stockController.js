@@ -5,7 +5,23 @@ const {
   normalizeSymbol
 } = require('../services/stockService');
 
-const allowedHistoricalOutSizes = [7, 30, 90, 180, 365];
+const historicalRanges = {
+  '1D': { days: 1, interval: '5m' },
+  '1W': { days: 7, interval: '1h' },
+  '1M': { days: 30, interval: '1d' },
+  '3M': { days: 90, interval: '1d' },
+  '6M': { days: 180, interval: '1d' },
+  '1Y': { days: 365, interval: '1d' },
+  '5Y': { days: 1825, interval: '1wk' }
+};
+
+const legacyHistoricalRanges = {
+  7: historicalRanges['1W'],
+  30: historicalRanges['1M'],
+  90: historicalRanges['3M'],
+  180: historicalRanges['6M'],
+  365: historicalRanges['1Y']
+};
 
 // ==========================================
 // Search Stocks
@@ -102,12 +118,14 @@ const getHistoricalStockData = async (req, res) => {
       });
     }
 
-    const outputsize = Number(req.query.outputsize || 30);
+    const requestedRange = String(req.query.range || '').trim().toUpperCase();
+    const outputsize = Number(req.query.outputsize);
+    const selectedRange = historicalRanges[requestedRange] || legacyHistoricalRanges[outputsize] || historicalRanges['1M'];
 
-    if (!Number.isInteger(outputsize) || !allowedHistoricalOutSizes.includes(outputsize)) {
+    if (requestedRange && !historicalRanges[requestedRange]) {
       return res.status(400).json({
         success: false,
-        message: 'outputsize must be one of: 7, 30, 90, 180, 365'
+        message: 'range must be one of: 1D, 1W, 1M, 3M, 6M, 1Y, 5Y'
       });
     }
 
@@ -115,13 +133,13 @@ const getHistoricalStockData = async (req, res) => {
     const period2 = new Date();
     const period1 = new Date();
 
-    period1.setDate(period1.getDate() - outputsize);
+    period1.setDate(period1.getDate() - selectedRange.days);
 
     const data = await getHistoricalData(
       normalizedSymbol,
       Math.floor(period1.getTime() / 1000),
       Math.floor(period2.getTime() / 1000),
-      '1d'
+      selectedRange.interval
     );
 
     res.status(200).json({
