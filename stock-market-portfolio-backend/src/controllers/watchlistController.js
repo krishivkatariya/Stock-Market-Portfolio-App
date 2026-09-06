@@ -95,6 +95,13 @@ const addToWatchlist = async (req, res) => {
     const stockSymbol =
       symbol.toUpperCase().trim();
 
+    if (stockSymbol === 'IPO') {
+      return res.status(400).json({
+        success: false,
+        message: 'IPO instruments cannot be added to the listed-stock watchlist'
+      });
+    }
+
     // Get stock information
     const quote =
       await getStockQuote(stockSymbol);

@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom';
+import { isStockInstrument } from '../utils/recentStocks';
 
 const currencyFormatter = new Intl.NumberFormat('en-IN', {
   style: 'currency',
@@ -7,6 +8,9 @@ const currencyFormatter = new Intl.NumberFormat('en-IN', {
 });
 
 const StockCard = ({ symbol, companyName, price, change, percentChange, isLive, dataSource }) => {
+  if (!isStockInstrument({ symbol, companyName })) {
+    return null;
+  }
   const numericChange = Number(change);
   const hasChange = change !== null && change !== undefined && !Number.isNaN(numericChange);
   const isPositive = hasChange && numericChange >= 0;

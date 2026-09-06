@@ -1,4 +1,5 @@
 import api from '../api/api';
+import { isStockInstrument } from '../utils/recentStocks';
 
 // ==========================================
 // Watchlist API service
@@ -14,6 +15,12 @@ export const getWatchlist = async () => {
 };
 
 export const addToWatchlist = async (symbol) => {
+  if (!isStockInstrument(symbol)) {
+    const error = new Error('IPO instruments cannot be added to the listed-stock watchlist.');
+    error.code = 'IPO_NOT_WATCHLISTABLE';
+    throw error;
+  }
+
   const response = await api.post('/watchlist', {
     symbol
   });

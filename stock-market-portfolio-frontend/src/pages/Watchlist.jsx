@@ -7,6 +7,7 @@ import {
   removeFromWatchlist
 } from '../services/watchlistService';
 import { subscribeToMarketSymbols } from '../services/marketStreamService';
+import { isStockInstrument } from '../utils/recentStocks';
 
 const formatCurrency = (value) => {
   if (value === null || value === undefined || Number.isNaN(Number(value))) {
@@ -108,7 +109,7 @@ const Watchlist = () => {
   const fetchWatchlist = useCallback(async () => {
     try {
       const data = await getWatchlist();
-      setStocks(data?.watchlist || []);
+      setStocks((data?.watchlist || []).filter((stock) => isStockInstrument(stock)));
       setError('');
     } catch (loadError) {
       if (loadError?.response?.status === 401) {

@@ -468,7 +468,7 @@ const StockDetails = () => {
       setStock(quoteStock);
 
       if (quoteStock?.symbol) {
-        addRecentStock(quoteStock.symbol);
+        addRecentStock(quoteStock);
       }
 
       setAvailableCash(Number(accountResponse?.data?.account?.availableCash ?? 0));
