@@ -1,6 +1,18 @@
 ﻿const RECENT_STOCKS_KEY = 'stockpilot_recent_stocks';
 const MAX_RECENT_STOCKS = 8;
 
+const isLegacyIpoPlaceholder = (instrument = {}) => {
+  const symbol = String(instrument.symbol || instrument || '').trim().toUpperCase();
+  const name = String(instrument.companyName || instrument.name || '').trim().toUpperCase();
+  const instrumentType = String(instrument.instrumentType || instrument.assetType || '').trim().toUpperCase();
+  const marketType = String(instrument.marketType || '').trim().toUpperCase();
+
+  return symbol === 'IPO' ||
+    name === 'RENAISSANCE IPO ETF' ||
+    instrumentType === 'IPO' ||
+    marketType === 'PRIMARY_MARKET';
+};
+
 // Frontend-only convenience: remembers the last few symbols the user opened.
 // Contains no sensitive data - just stock symbols.
 export const getRecentStocks = () => {
@@ -17,9 +29,21 @@ export const getRecentStocks = () => {
       return [];
     }
 
-    return parsed
-      .filter((item) => typeof item === 'string' && item.trim())
-      .map((item) => item.trim().toUpperCase())
+    const cleaned = parsed
+      .filter((item) => {
+        const symbol = typeof item === 'string' ? item : item?.symbol;
+        return typeof symbol === 'string' && symbol.trim();
+      })
+      .filter((item) => !isLegacyIpoPlaceholder(item))
+      .map((item) => (typeof item === 'string' ? item : item.symbol).trim().toUpperCase())
+      .filter((item) => !isLegacyIpoPlaceholder(item));
+
+    // Migrate only the legacy IPO placeholder; retain legitimate symbols.
+    if (cleaned.length !== parsed.length) {
+      window.localStorage.setItem(RECENT_STOCKS_KEY, JSON.stringify(cleaned.slice(0, MAX_RECENT_STOCKS)));
+    }
+
+    return cleaned
       .slice(0, MAX_RECENT_STOCKS);
   } catch {
     // Corrupted or unavailable localStorage should never break the UI.
@@ -27,12 +51,18 @@ export const getRecentStocks = () => {
   }
 };
 
-export const addRecentStock = (symbol) => {
-  if (!symbol || typeof symbol !== 'string') {
+export const addRecentStock = (instrument) => {
+  if (!instrument || (typeof instrument !== 'string' && typeof instrument !== 'object')) {
     return;
   }
 
-  const cleanSymbol = symbol.trim().toUpperCase();
+  if (isLegacyIpoPlaceholder(instrument)) {
+    return;
+  }
+
+  const symbol = typeof instrument === 'string' ? instrument : instrument.symbol;
+
+  const cleanSymbol = String(symbol || '').trim().toUpperCase();
 
   if (!cleanSymbol) {
     return;
@@ -49,3 +79,5 @@ export const addRecentStock = (symbol) => {
     // Storage may be unavailable (private mode); the app works without it.
   }
 };
+
+export const isStockInstrument = (instrument) => !isLegacyIpoPlaceholder(instrument);

@@ -87,8 +87,8 @@ const NAV_ITEMS = [
   { label: 'Orders', to: '/orders', Icon: OrdersIcon },
   { label: 'Transactions', to: '/transactions', Icon: TransactionsIcon },
   { label: 'Account', to: '/account', Icon: AccountIcon },
-  { label: 'Notifications', to: '/notifications', Icon: NotificationsIcon }
-  ,{ label: 'IPO centre', to: '/ipo', Icon: IPOIcon }
+  { label: 'Notifications', to: '/notifications', Icon: NotificationsIcon },
+  { label: 'IPO centre', to: '/ipo', Icon: IPOIcon }
 ];
 
 const Sidebar = ({ isOpen, onNavigate, onLogout, user }) => {

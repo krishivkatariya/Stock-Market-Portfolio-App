@@ -15,6 +15,7 @@ import Orders from './pages/Orders';
 import Notifications from './pages/Notifications';
 import StockDetails from './pages/StockDetails';
 import IPO from './pages/IPO';
+import IPODetails from './pages/IPODetails';
 import ProtectedRoute from './components/ProtectedRoute';
 import Layout from './components/Layout';
 
@@ -83,8 +84,18 @@ function App() {
           />
 
           <Route
+            path="/ipo/:id"
+            element={<IPODetails />}
+          />
+
+          <Route
             path="/account"
             element={<Account />}
+          />
+
+          <Route
+            path="/stock/IPO"
+            element={<Navigate to="/ipo" replace />}
           />
 
           <Route

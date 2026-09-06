@@ -8,7 +8,7 @@ import StockCard from '../components/StockCard';
 import { getStockQuote } from '../services/stockService';
 import { getWatchlist } from '../services/watchlistService';
 import { getOrders } from '../services/orderService';
-import { getRecentStocks } from '../utils/recentStocks';
+import { getRecentStocks, isStockInstrument } from '../utils/recentStocks';
 import {
   subscribeToMarket,
   subscribeToMarketSymbols,
@@ -557,7 +557,17 @@ const Dashboard = () => {
           ? response.data.results
           : [];
 
-        setSearchResults(quotes.slice(0, SEARCH_RESULTS_LIMIT));
+        setSearchResults(
+          quotes
+            .filter((quote) => isStockInstrument({
+              symbol: quote?.symbol,
+              companyName: resultName(quote),
+              instrumentType: quote?.instrumentType,
+              assetType: quote?.assetType,
+              marketType: quote?.marketType
+            }))
+            .slice(0, SEARCH_RESULTS_LIMIT)
+        );
         setSearchError("");
         setHighlightedIndex(-1);
       } catch (searchApiError) {
@@ -603,12 +613,16 @@ const Dashboard = () => {
   // symbols into its ONE poll loop). No extra polling loop or socket is created.
   const liveSymbolsKey = useMemo(() => {
     const symbols = new Set(
-      discoverySymbols.map((symbol) => String(symbol).trim().toUpperCase())
+      discoverySymbols
+        .filter((symbol) => isStockInstrument(symbol))
+        .map((symbol) => String(symbol).trim().toUpperCase())
     );
 
     watchlistStocks.forEach((stock) => {
       if (stock?.symbol) {
-        symbols.add(String(stock.symbol).trim().toUpperCase());
+        if (isStockInstrument(stock)) {
+          symbols.add(String(stock.symbol).trim().toUpperCase());
+        }
       }
     });
 

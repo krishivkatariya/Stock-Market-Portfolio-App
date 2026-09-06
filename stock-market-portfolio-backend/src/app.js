@@ -19,6 +19,7 @@ const orderRoutes = require('./routes/orderRoutes');
 const dashboardRoutes = require('./routes/dashboardRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
 const marketRoutes = require('./routes/marketRoutes');
+const ipoRoutes = require('./routes/ipoRoutes');
 const marketDataService = require('./services/marketDataService');
 
 const app = express();
@@ -66,6 +67,7 @@ app.use(
 
 // Real-time market stream (SSE) + snapshot
 app.use('/api/market', marketRoutes);
+app.use('/api/ipos', ipoRoutes);
 
 // Test route
 app.get('/', (req, res) => {
