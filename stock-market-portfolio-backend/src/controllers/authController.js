@@ -2,10 +2,26 @@ const User = require('../models/User');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const Account = require('../models/Account');
+const mongoose = require('mongoose');
+
+const requireDatabase = (res) => {
+  if (mongoose.connection.readyState === 1) {
+    return true;
+  }
+
+  res.status(503).json({
+    success: false,
+    message: 'Database unavailable. Check the MongoDB connection and Atlas network access.'
+  });
+
+  return false;
+};
 
 // Register User
 const registerUser = async (req, res) => {
   try {
+    if (!requireDatabase(res)) return;
+
     const { name, email, password } = req.body;
 
     // Check required fields
@@ -82,6 +98,8 @@ await Account.create({
 // Login User
 const loginUser = async (req, res) => {
   try {
+    if (!requireDatabase(res)) return;
+
     const { email, password } = req.body;
 
     // Check fields
